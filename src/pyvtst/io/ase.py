@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy.typing as npt
 
@@ -39,18 +39,22 @@ def from_ase(
     masses (average atomic weights) are ignored in favour of pyvtst's isotope
     masses unless ``masses`` is given. Cells and calculators are ignored.
     """
-    _ase_atoms()
-    info = atoms.info
+    _ase_atoms()  # an object from a missing ASE still gets the install hint
+    info: dict[str, Any] = atoms.info
+    if charge is None:
+        charge = info.get("charge", 0)
     if mult is None:
-        mult = info["multiplicity"] if "multiplicity" in info else info.get("spin", 1)
+        mult = info.get("multiplicity", info.get("spin", 1))
+    if name is None:
+        name = info.get("name", "")
     return Molecule(
         symbols=atoms.get_chemical_symbols(),
         coords=atoms.get_positions() / BOHR_TO_ANGSTROM,
-        charge=info.get("charge", 0) if charge is None else charge,
+        charge=charge,
         mult=mult,
         masses=masses,
         symmetry_number=symmetry_number,
-        name=info.get("name", "") if name is None else name,
+        name=name,
     )
 
 
