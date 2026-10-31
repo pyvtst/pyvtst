@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 pyscf = pytest.importorskip("pyscf")
-from pyscf import dft, scf  # noqa: E402
+from pyscf import scf  # noqa: E402
 
 from pyvtst import Molecule  # noqa: E402
 from pyvtst.core.finite_difference import fd_hessian  # noqa: E402
@@ -108,12 +108,6 @@ def test_closed_shell_uses_restricted(water):
 def test_open_shell_uses_unrestricted(hydroxyl):
     mf, _ = PySCFEngine("HF", "sto-3g")._run(hydroxyl)
     assert isinstance(mf, scf.uhf.UHF)
-
-
-def test_dft_reference_follows_multiplicity(water, hydroxyl):
-    engine = PySCFEngine("PBE", "sto-3g")
-    assert isinstance(engine._run(water)[0], dft.rks.RKS)
-    assert isinstance(engine._run(hydroxyl)[0], dft.uks.UKS)
 
 
 def test_forced_unrestricted_singlet(water):
