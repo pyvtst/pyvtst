@@ -22,18 +22,17 @@ pyvtst stores geometries in bohr and masses in amu (most abundant isotope by
 default).
 
 ```python
-import pyvtst
+from pyvtst import Molecule
+from pyvtst.io import from_ase, from_smiles, read_xyz, to_ase, write_xyz
 
-water = pyvtst.read_xyz("water.xyz")
-methyl = pyvtst.from_smiles("[CH3]")  # multiplicity 2 inferred
-h_atom = pyvtst.read_xyz("h.xyz", mult=2)
-pyvtst.write_xyz(water, "water_out.xyz")
+water = read_xyz("water.xyz")
+methyl = from_smiles("[CH3]")  # multiplicity 2 inferred
+h_atom = read_xyz("h.xyz", mult=2)
+write_xyz(water, "water_out.xyz")
+atoms = to_ase(water)  # and from_ase(atoms)
 
-atoms = pyvtst.to_ase(water)  # and pyvtst.from_ase(atoms)
+h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [0.0, 0.0, 1.4]])  # bohr
 ```
-
-You can also build a `pyvtst.Molecule` directly from symbols and bohr
-coordinates.
 
 Unit conversion factors live in `pyvtst.units`, derived from the CODATA
 values shipped with SciPy:
