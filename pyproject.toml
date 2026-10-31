@@ -25,6 +25,7 @@ dependencies = ["numpy>=1.24", "scipy>=1.10"]
 [project.optional-dependencies]
 ase = ["ase>=3.22"]
 geometric = ["geometric>=1.1"]
+hdf5 = ["h5py>=3.8"]
 pyscf = ["pyscf>=2.4"]
 rdkit = ["rdkit>=2023.9"]
 
@@ -84,9 +85,9 @@ warn_unreachable = true
 # ASE ships py.typed but many of its methods are unannotated.
 untyped_calls_exclude = ["ase"]
 
-# PySCF and geomeTRIC ship no type information.
+# PySCF, geomeTRIC and h5py ship no type information.
 [[tool.mypy.overrides]]
-module = ["pyscf.*", "geometric.*"]
+module = ["pyscf.*", "geometric.*", "h5py.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
