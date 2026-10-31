@@ -48,7 +48,9 @@ build-backend = "uv_build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = ["--cov", "--cov-report=term-missing"]
+# Slow tests (published-reference validation, needs PySCF) run only with -m slow.
+addopts = ["--cov", "--cov-report=term-missing", "-m", "not slow"]
+markers = ["slow: long-running validation against published results; run with -m slow"]
 
 [tool.coverage.run]
 source_pkgs = ["pyvtst"]
