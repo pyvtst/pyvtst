@@ -9,6 +9,8 @@ tabulated data, not physical constants, so they are not taken from
 ``scipy.constants``.
 """
 
+from collections import Counter
+from collections.abc import Iterable
 from typing import NamedTuple
 
 
@@ -76,3 +78,20 @@ def element(symbol: str) -> Element:
         raise ValueError(
             f"unknown or unsupported element {symbol!r} (pyvtst supports H-Kr)"
         ) from None
+
+
+def formula(symbols: Iterable[str]) -> str:
+    """Return the Hill-order formula of ``symbols``, e.g. ``"CH4"`` or ``"H2O"``.
+
+    Carbon comes first and hydrogen second when carbon is present; every other
+    element (and hydrogen without carbon) follows alphabetically.
+    """
+    counts = Counter(canonical_symbol(s) for s in symbols)
+    order = sorted(counts)
+    if "C" in counts:
+        order = (
+            ["C"]
+            + (["H"] if "H" in counts else [])
+            + [s for s in order if s not in ("C", "H")]
+        )
+    return "".join(s + (str(counts[s]) if counts[s] > 1 else "") for s in order)
