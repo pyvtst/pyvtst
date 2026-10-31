@@ -72,7 +72,7 @@ def water(**changes):
 
 
 def methane(**changes):
-    coords = [[0, 0, 0], [1.2, 1.2, 1.2], [-1.2, -1.2, 1.2], [-1.2, 1.2, -1.2]]
+    coords = [[0.0, 0.0, 0.0], [1.2, 1.2, 1.2], [-1.2, -1.2, 1.2], [-1.2, 1.2, -1.2]]
     coords.append([1.2, -1.2, -1.2])
     return Molecule(("C", "H", "H", "H", "H"), coords).replace(**changes)
 

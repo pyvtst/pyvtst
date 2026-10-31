@@ -97,7 +97,7 @@ def test_charge_mult_and_symbols_matter(changes):
 
 
 def test_masses_matter_by_default():
-    coords = [[0, 0, 0], [1.2, 1.2, 1.2], [-1.2, -1.2, 1.2], [-1.2, 1.2, -1.2]]
+    coords = [[0.0, 0.0, 0.0], [1.2, 1.2, 1.2], [-1.2, -1.2, 1.2], [-1.2, 1.2, -1.2]]
     coords.append([1.2, -1.2, -1.2])
     ch4 = Molecule(("C", "H", "H", "H", "H"), coords)
     masses = ch4.masses.copy()

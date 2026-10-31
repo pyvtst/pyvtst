@@ -93,17 +93,18 @@ class CachedEngine:
         check: Callable[[object, Molecule], T],
     ) -> T | None:
         """Return the stored result if the record's inputs match, else None."""
-        symbols = record.get("symbols")
+        symbols, coords = record.get("symbols"), record.get("coords")
         if (
             record.get("level") != level.key()
             or record.get("engine") != self.engine_id
             or not isinstance(symbols, str)
+            or not isinstance(coords, np.ndarray)
         ):
             return None
         try:
             stored = Molecule(
                 symbols.split(" "),
-                record.get("coords"),
+                coords,
                 charge=mol.charge,
                 mult=mol.mult,
             )
