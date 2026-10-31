@@ -5,6 +5,7 @@ description = "Thermal rate constants for gas-phase reactions from conventional 
 readme = "README.md"
 requires-python = ">=3.11"
 license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 authors = [{ name = "Emilian R" }]
 keywords = ["chemistry", "kinetics", "transition state theory", "VTST", "tunneling"]
 classifiers = [
