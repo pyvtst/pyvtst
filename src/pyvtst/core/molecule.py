@@ -56,49 +56,15 @@ class Molecule:
         symmetry_number: SupportsIndex = 1,
         name: str = "",
     ) -> None:
-        syms = tuple(canonical_symbol(s) for s in symbols)
-        if not syms:
-            raise ValueError("symbols: a molecule needs at least one atom")
-        numbers = [element(s).atomic_number for s in syms]
-        n = len(syms)
-
-        try:
-            xyz = np.array(coords, dtype=np.float64)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"coords: not a numeric array ({exc})") from None
-        if xyz.shape != (n, 3):
-            raise ValueError(
-                f"coords: expected shape ({n}, 3) for {n} atoms, got {xyz.shape}"
-            )
-        if not np.all(np.isfinite(xyz)):
-            raise ValueError("coords: all coordinates must be finite")
-
-        if masses is None:
-            m = np.array([element(s).mass for s in syms], dtype=np.float64)
-        else:
-            try:
-                m = np.array(masses, dtype=np.float64)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"masses: not a numeric array ({exc})") from None
-            if m.shape != (n,):
-                raise ValueError(f"masses: expected {n} values, got shape {m.shape}")
-            if not np.all(np.isfinite(m) & (m > 0)):
-                raise ValueError("masses: all masses must be finite and positive")
-
+        syms = _symbols(symbols)
+        xyz = _coords(coords, len(syms))
+        m = _masses(masses, syms)
         q = operator.index(charge)
         spin = operator.index(mult)
         sigma = operator.index(symmetry_number)
-        if spin < 1:
-            raise ValueError(f"mult: multiplicity must be >= 1, got {spin}")
+        _check_spin(syms, q, spin)
         if sigma < 1:
             raise ValueError(f"symmetry_number: must be >= 1, got {sigma}")
-        n_electrons = sum(numbers) - q
-        n_unpaired = spin - 1
-        if n_unpaired > n_electrons or n_unpaired % 2 != n_electrons % 2:
-            raise ValueError(
-                f"mult: multiplicity {spin} is inconsistent with "
-                f"{n_electrons} electrons (charge {q})"
-            )
 
         xyz.flags.writeable = False
         m.flags.writeable = False
@@ -155,3 +121,54 @@ class Molecule:
     def coords_angstrom(self) -> FloatArray:
         """Coordinates in ångström, as a new array."""
         return self.coords * BOHR_TO_ANGSTROM
+
+
+def _symbols(symbols: Iterable[str]) -> tuple[str, ...]:
+    syms = tuple(canonical_symbol(s) for s in symbols)
+    if not syms:
+        raise ValueError("symbols: a molecule needs at least one atom")
+    for s in syms:
+        element(s)  # raises ValueError for unknown elements
+    return syms
+
+
+def _coords(coords: npt.ArrayLike, n_atoms: int) -> FloatArray:
+    try:
+        xyz = np.array(coords, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"coords: not a numeric array ({exc})") from None
+    if xyz.shape != (n_atoms, 3):
+        raise ValueError(
+            f"coords: expected shape ({n_atoms}, 3) for {n_atoms} atoms, "
+            f"got {xyz.shape}"
+        )
+    if not np.all(np.isfinite(xyz)):
+        raise ValueError("coords: all coordinates must be finite")
+    return xyz
+
+
+def _masses(masses: npt.ArrayLike | None, symbols: tuple[str, ...]) -> FloatArray:
+    if masses is None:
+        return np.array([element(s).mass for s in symbols], dtype=np.float64)
+    try:
+        m = np.array(masses, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"masses: not a numeric array ({exc})") from None
+    if m.shape != (len(symbols),):
+        raise ValueError(f"masses: expected {len(symbols)} values, got shape {m.shape}")
+    if not np.all(np.isfinite(m) & (m > 0)):
+        raise ValueError("masses: all masses must be finite and positive")
+    return m
+
+
+def _check_spin(symbols: tuple[str, ...], charge: int, mult: int) -> None:
+    """Multiplicity must be >= 1 and match the electron count's parity."""
+    if mult < 1:
+        raise ValueError(f"mult: multiplicity must be >= 1, got {mult}")
+    n_electrons = sum(element(s).atomic_number for s in symbols) - charge
+    n_unpaired = mult - 1
+    if n_unpaired > n_electrons or n_unpaired % 2 != n_electrons % 2:
+        raise ValueError(
+            f"mult: multiplicity {mult} is inconsistent with "
+            f"{n_electrons} electrons (charge {charge})"
+        )
