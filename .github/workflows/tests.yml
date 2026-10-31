@@ -32,4 +32,4 @@ jobs:
       - name: Install with all extras
         run: uv sync --locked --all-extras
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest --cov-fail-under=90
