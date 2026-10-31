@@ -5,9 +5,9 @@ reactions. It is planned to cover conventional transition state theory (TST),
 canonical variational TST (CVT) along the minimum-energy path, and Wigner,
 Eckart and zero-curvature tunneling corrections.
 
-> **Status: pre-alpha.** The `Molecule` structure type, units, structure
-> readers and the PySCF engine are in place; rate calculations are not
-> available yet.
+> **Status: pre-alpha.** Conventional TST rate constants with Wigner and
+> Eckart tunneling are available; CVT and zero-curvature tunneling are not
+> yet.
 
 ## Install
 
@@ -16,6 +16,8 @@ pip install pyvtst              # numpy and scipy only
 pip install "pyvtst[ase]"       # + conversion to and from ase.Atoms
 pip install "pyvtst[rdkit]"     # + 3D structures from SMILES
 pip install "pyvtst[pyscf]"     # + energies, gradients and Hessians from PySCF
+pip install "pyvtst[geometric]" # + geometry optimization with geomeTRIC
+pip install "pyvtst[hdf5]"      # + result caching in HDF5 files
 ```
 
 ## Molecules
@@ -95,6 +97,65 @@ basis set that lacks an element raises `ValueError`.
 `engine.level.key()` is a string identifying the settings that change a
 result, for use as a cache key. `max_cycle`, `max_memory_mb` and `verbose` are
 not part of it.
+
+## Rate constants
+
+`Reaction` takes geometry guesses for the reactants and the transition state,
+re-optimizes them at the engine's level of theory, checks that the transition
+state has exactly one imaginary frequency, and computes conventional TST rate
+constants. This example needs the `pyscf`, `geometric` and `hdf5` extras.
+
+```python
+from pyvtst import Molecule, Reaction
+from pyvtst.engines import PySCFEngine
+
+h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]], symmetry_number=2)
+h = Molecule(["H"], [[0.0, 0.0, 0.0]], mult=2)
+h3_guess = Molecule(
+    ["H", "H", "H"],
+    [[-1.6, 0.0, 0.0], [0.0, 0.0, 0.0], [1.9, 0.08, 0.0]],  # bohr
+    mult=2,
+    symmetry_number=2,
+)
+
+rxn = Reaction([h2, h], h3_guess, PySCFEngine("B3LYP", "def2-SVP"), store="h3.h5")
+result = rxn.rates([300, 500, 1000], tunneling="eckart")
+print(result.table())
+```
+
+`rates(T, theory="tst", tunneling=None)` accepts `tunneling=None`, `"wigner"`
+or `"eckart"`. Eckart uses an asymmetric barrier when `products=` are given to
+`Reaction` and a symmetric one otherwise. Unimolecular rate constants are in
+s⁻¹ and bimolecular ones in cm³ molecule⁻¹ s⁻¹. `result.k`, `result.k_tst` and
+`result.kappa` are numpy arrays, one value per temperature.
+
+Reaction-path degeneracy comes only from each molecule's `symmetry_number`,
+so set it on reactants and transition state. Partition functions use the rigid
+rotor and harmonic oscillator; thermochemistry from
+`pyvtst.core.partition.thermo` uses the 1 bar standard state.
+
+## Caching
+
+Optimizations, energies, gradients and Hessians are cached, so a repeated
+call costs nothing. With `Reaction`, pass `store=`:
+
+- omitted: results are kept in memory for the life of the `Reaction`;
+- a path such as `"h3.h5"`: results are kept in an HDF5 file (needs the
+  `hdf5` extra), and a later session with the same inputs reuses all of them;
+- a store object from `pyvtst.stores` (`MemoryStore`, `HDF5Store`).
+
+`CachedEngine` is for scripts that call engines or optimizers directly:
+
+```python
+from pyvtst.engines import CachedEngine, PySCFEngine
+from pyvtst.stores import HDF5Store
+
+engine = CachedEngine(PySCFEngine("B3LYP", "def2-SVP"), HDF5Store("results.h5"))
+engine.hessian(h2)  # computed once, then read from results.h5
+```
+
+A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
+its own store, and the `Reaction`'s optimized geometries go to `store=`.
 
 ## Development
 
