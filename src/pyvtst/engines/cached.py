@@ -34,6 +34,10 @@ class CachedEngine:
     computed from, and a record whose inputs do not match is recomputed and
     overwritten rather than trusted. Results from the wrapped engine are
     checked before they are stored; a bad one raises ``ValueError``.
+
+    With :class:`pyvtst.Reaction`, pass ``Reaction(store=...)`` instead; it
+    wraps the engine itself. ``CachedEngine`` is for scripts that call engines
+    or optimizers directly.
     """
 
     def __init__(
