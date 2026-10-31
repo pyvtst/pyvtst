@@ -1,15 +1,26 @@
-# pyvtst
+<p align="center">
+  <img src="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/logo.svg" alt="PyVTST" width="400">
+</p>
 
-pyvtst is a Python library for thermal rate constants of gas-phase chemical
-reactions. It is planned to cover conventional transition state theory (TST),
-canonical variational TST (CVT) along the minimum-energy path, and Wigner,
-Eckart and zero-curvature tunneling corrections.
+<p align="center">
+  <a href="https://github.com/pyvtst/pyvtst/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/pyvtst/pyvtst/tests.yml?branch=main&logo=github&label=CI" alt="CI"></a>
+  <a href="https://codecov.io/gh/pyvtst/pyvtst"><img src="https://img.shields.io/codecov/c/github/pyvtst/pyvtst?logo=codecov&label=coverage" alt="Coverage"></a>
+  <a href="https://pypi.org/project/pyvtst/"><img src="https://img.shields.io/pypi/v/pyvtst.svg" alt="PyPI"></a>
+  <a href="https://pepy.tech/project/pyvtst"><img src="https://static.pepy.tech/badge/pyvtst/month" alt="Downloads"></a>
+  <a href="https://github.com/pyvtst/pyvtst"><img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fpyvtst%2Fpyvtst%2Fmain%2Fpyproject.toml" alt="Python versions"></a>
+  <a href="https://github.com/pyvtst/pyvtst/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pyvtst/pyvtst.svg" alt="License"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
+  <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-mypy%20strict-blue" alt="mypy strict"></a>
+</p>
+
+Thermal rate constants for gas-phase chemical reactions from transition state
+theory, with tunneling corrections.
 
 > **Status: pre-alpha.** Conventional TST rate constants with Wigner and
 > Eckart tunneling are available; CVT and zero-curvature tunneling are not
 > yet.
 
-## Install
+## Installation
 
 ```bash
 pip install pyvtst              # numpy and scipy only
@@ -20,7 +31,45 @@ pip install "pyvtst[geometric]" # + geometry optimization with geomeTRIC
 pip install "pyvtst[hdf5]"      # + result caching in HDF5 files
 ```
 
-## Molecules
+## Quick start
+
+`Reaction` takes geometry guesses for the reactants and the transition state,
+re-optimizes them at the engine's level of theory, checks that the transition
+state has exactly one imaginary frequency, and computes conventional TST rate
+constants. This example needs the `pyscf`, `geometric` and `hdf5` extras.
+
+```python
+from pyvtst import Molecule, Reaction
+from pyvtst.engines import PySCFEngine
+
+h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]], symmetry_number=2)
+h = Molecule(["H"], [[0.0, 0.0, 0.0]], mult=2)
+h3_guess = Molecule(
+    ["H", "H", "H"],
+    [[-1.6, 0.0, 0.0], [0.0, 0.0, 0.0], [1.9, 0.08, 0.0]],  # bohr
+    mult=2,
+    symmetry_number=2,
+)
+
+rxn = Reaction([h2, h], h3_guess, PySCFEngine("B3LYP", "def2-SVP"), store="h3.h5")
+result = rxn.rates([300, 500, 1000], tunneling="eckart")
+print(result.table())
+```
+
+`rates(T, theory="tst", tunneling=None)` accepts `tunneling=None`, `"wigner"`
+or `"eckart"`. Eckart uses an asymmetric barrier when `products=` are given to
+`Reaction` and a symmetric one otherwise. Unimolecular rate constants are in
+s⁻¹ and bimolecular ones in cm³ molecule⁻¹ s⁻¹. `result.k`, `result.k_tst` and
+`result.kappa` are numpy arrays, one value per temperature.
+
+Reaction-path degeneracy comes only from each molecule's `symmetry_number`,
+so set it on reactants and transition state. Partition functions use the rigid
+rotor and harmonic oscillator; thermochemistry from
+`pyvtst.core.partition.thermo` uses the 1 bar standard state.
+
+## Usage
+
+### Molecules
 
 pyvtst stores geometries in bohr and masses in amu (most abundant isotope by
 default).
@@ -45,7 +94,7 @@ values shipped with SciPy:
 from pyvtst.units import BOHR_TO_ANGSTROM, HARTREE_TO_KCAL_PER_MOL
 ```
 
-## Energies with PySCF
+### Energies with PySCF
 
 `PySCFEngine` computes energies, gradients and Hessians with HF, MP2 or any
 DFT functional PySCF knows. It needs the `pyscf` extra. All results are in
@@ -98,43 +147,7 @@ basis set that lacks an element raises `ValueError`.
 result, for use as a cache key. `max_cycle`, `max_memory_mb` and `verbose` are
 not part of it.
 
-## Rate constants
-
-`Reaction` takes geometry guesses for the reactants and the transition state,
-re-optimizes them at the engine's level of theory, checks that the transition
-state has exactly one imaginary frequency, and computes conventional TST rate
-constants. This example needs the `pyscf`, `geometric` and `hdf5` extras.
-
-```python
-from pyvtst import Molecule, Reaction
-from pyvtst.engines import PySCFEngine
-
-h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]], symmetry_number=2)
-h = Molecule(["H"], [[0.0, 0.0, 0.0]], mult=2)
-h3_guess = Molecule(
-    ["H", "H", "H"],
-    [[-1.6, 0.0, 0.0], [0.0, 0.0, 0.0], [1.9, 0.08, 0.0]],  # bohr
-    mult=2,
-    symmetry_number=2,
-)
-
-rxn = Reaction([h2, h], h3_guess, PySCFEngine("B3LYP", "def2-SVP"), store="h3.h5")
-result = rxn.rates([300, 500, 1000], tunneling="eckart")
-print(result.table())
-```
-
-`rates(T, theory="tst", tunneling=None)` accepts `tunneling=None`, `"wigner"`
-or `"eckart"`. Eckart uses an asymmetric barrier when `products=` are given to
-`Reaction` and a symmetric one otherwise. Unimolecular rate constants are in
-s⁻¹ and bimolecular ones in cm³ molecule⁻¹ s⁻¹. `result.k`, `result.k_tst` and
-`result.kappa` are numpy arrays, one value per temperature.
-
-Reaction-path degeneracy comes only from each molecule's `symmetry_number`,
-so set it on reactants and transition state. Partition functions use the rigid
-rotor and harmonic oscillator; thermochemistry from
-`pyvtst.core.partition.thermo` uses the 1 bar standard state.
-
-## Caching
+### Caching
 
 Optimizations, energies, gradients and Hessians are cached, so a repeated
 call costs nothing. With `Reaction`, pass `store=`:
@@ -157,7 +170,11 @@ engine.hessian(h2)  # computed once, then read from results.h5
 A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
 its own store, and the `Reaction`'s optimized geometries go to `store=`.
 
-## Development
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short, set up a
+development environment with [uv](https://docs.astral.sh/uv/) and run the same
+checks as CI:
 
 ```bash
 uv sync --all-extras                    # dev tools + all optional adapters
