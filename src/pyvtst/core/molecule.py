@@ -126,7 +126,16 @@ class Molecule:
     __hash__ = None  # type: ignore[assignment]
 
     def replace(self, **changes: Any) -> Molecule:
-        """Return a validated copy with the given fields replaced."""
+        """Return a validated copy with the given fields replaced.
+
+        If ``symbols`` change and ``masses`` is not given, the new molecule gets
+        default masses for its new elements rather than the old masses.
+        """
+        if "symbols" in changes and "masses" not in changes:
+            symbols = tuple(changes["symbols"])
+            changes["symbols"] = symbols
+            if tuple(canonical_symbol(s) for s in symbols) != self.symbols:
+                changes["masses"] = None
         return dataclasses.replace(self, **changes)
 
     @property

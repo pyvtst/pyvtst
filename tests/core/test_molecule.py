@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from pyvtst import Molecule
+from pyvtst.core.elements import element
 from pyvtst.core.units import BOHR_TO_ANGSTROM
 
 WATER_COORDS = np.array(
@@ -203,6 +204,27 @@ def test_replace_coordinates():
     assert moved.symbols == mol.symbols
     assert moved.name == "w"
     np.testing.assert_array_equal(mol.coords, WATER_COORDS)
+
+
+def test_replace_symbols_resets_default_masses():
+    co = Molecule(["C", "O"], [[0.0, 0.0, 0.0], [0.0, 0.0, 2.13]])
+    no = co.replace(symbols=("N", "O"), mult=2)
+    np.testing.assert_array_equal(no.masses, [element("N").mass, element("O").mass])
+
+
+def test_replace_keeps_explicit_masses_when_symbols_unchanged():
+    masses = [15.99491461957, 2.01410178, 1.00782503223]
+    hdo = water(masses=masses)
+    np.testing.assert_array_equal(
+        hdo.replace(coords=WATER_COORDS * 1.01).masses, masses
+    )
+    np.testing.assert_array_equal(hdo.replace(symbols=["o", "h", "h"]).masses, masses)
+
+
+def test_replace_symbols_with_explicit_masses():
+    co = Molecule(["C", "O"], [[0.0, 0.0, 0.0], [0.0, 0.0, 2.13]])
+    c13o = co.replace(symbols=("C", "O"), masses=[13.00335484, 15.99491462])
+    assert c13o.masses[0] == 13.00335484
 
 
 def test_replace_invalid_rejected():
