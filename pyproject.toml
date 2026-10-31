@@ -25,11 +25,14 @@ dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.optional-dependencies]
 ase = ["ase>=3.22"]
+geometric = ["geometric>=1.1"]
+pyscf = ["pyscf>=2.4"]
 rdkit = ["rdkit>=2023.9"]
 
 [dependency-groups]
 dev = [
     "bandit[toml]>=1.9.4",
+    "geometric>=1.1",
     "import-linter>=2.15",
     "mypy>=2.4.1",
     "pytest>=8",
@@ -44,6 +47,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = ["--cov", "--cov-report=term-missing"]
 
 [tool.coverage.run]
@@ -81,6 +85,11 @@ warn_unreachable = true
 # ASE ships py.typed but many of its methods are unannotated.
 untyped_calls_exclude = ["ase"]
 
+# PySCF and geomeTRIC ship no type information.
+[[tool.mypy.overrides]]
+module = ["pyscf.*", "geometric.*"]
+ignore_missing_imports = true
+
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
@@ -109,10 +118,8 @@ layers = [
     "core",
 ]
 
-# "pyvtst.ports.**" covers submodules only; add "pyvtst.ports" itself once the
-# package exists (a missing module is an error here).
 [[tool.importlinter.contracts]]
 name = "Core and ports use only numpy and scipy"
 type = "forbidden"
-source_modules = ["pyvtst.core", "pyvtst.ports.**"]
+source_modules = ["pyvtst.core", "pyvtst.ports"]
 forbidden_modules = ["ase", "rdkit", "pyscf", "geometric", "h5py"]

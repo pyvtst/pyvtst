@@ -1,11 +1,14 @@
-"""pyvtst.core (and the top-level package) must not import third-party tools."""
+"""Importing pyvtst must not import third-party tools before they are used."""
 
 import subprocess
 import sys
 
+import pytest
+
 FORBIDDEN = ("ase", "rdkit", "pyscf", "geometric", "h5py")
 
-SCRIPT = f"""
+# pyvtst.core (and the top-level package) never import a third-party tool.
+CORE_SCRIPT = f"""
 import importlib, pkgutil, sys
 import pyvtst, pyvtst.units, pyvtst.core
 for info in pkgutil.walk_packages(pyvtst.core.__path__, "pyvtst.core."):
@@ -13,9 +16,23 @@ for info in pkgutil.walk_packages(pyvtst.core.__path__, "pyvtst.core."):
 print(",".join(m for m in {FORBIDDEN!r} if m in sys.modules))
 """
 
+# Ports and adapter packages import PySCF and geomeTRIC only when an engine or
+# optimizer is built.
+ADAPTER_SCRIPT = f"""
+import importlib, pkgutil, sys
+for name in ("pyvtst.ports", "pyvtst.engines", "pyvtst.optimizers"):
+    pkg = importlib.import_module(name)
+    for info in pkgutil.walk_packages(pkg.__path__, name + "."):
+        importlib.import_module(info.name)
+print(",".join(m for m in {FORBIDDEN!r} if m in sys.modules))
+"""
 
-def test_core_imports_no_third_party_tools():
+
+@pytest.mark.parametrize(
+    "script", [CORE_SCRIPT, ADAPTER_SCRIPT], ids=["core", "adapters"]
+)
+def test_imports_no_third_party_tools(script):
     result = subprocess.run(
-        [sys.executable, "-c", SCRIPT], capture_output=True, text=True, check=True
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == ""
