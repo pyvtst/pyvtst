@@ -170,4 +170,4 @@ uv run bandit -c pyproject.toml -r src
 
 ## License
 
-BSD-3-Clause.
+BSD-3-Clause. See [LICENSE](LICENSE).
