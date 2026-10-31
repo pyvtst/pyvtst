@@ -2,25 +2,11 @@
 
 from __future__ import annotations
 
-from types import ModuleType
-
 import numpy as np
 import numpy.typing as npt
 
 from pyvtst.core.molecule import Molecule
 from pyvtst.core.units import BOHR_TO_ANGSTROM
-
-
-def _require_rdkit() -> tuple[ModuleType, ModuleType, ModuleType]:
-    # RDKit is optional, so it is imported on first use rather than at load time.
-    try:
-        from rdkit import Chem  # noqa: PLC0415
-        from rdkit.Chem import AllChem, Descriptors  # noqa: PLC0415
-    except ImportError as exc:
-        raise ImportError(
-            'pyvtst.io.from_smiles needs RDKit: pip install "pyvtst[rdkit]"'
-        ) from exc
-    return Chem, AllChem, Descriptors
 
 
 def from_smiles(
@@ -42,7 +28,15 @@ def from_smiles(
     to the SMILES. The result is a guess for later optimization, for stable
     species (minima) only.
     """
-    Chem, AllChem, Descriptors = _require_rdkit()
+    # RDKit is optional, so it is imported on first use rather than at load
+    # time. Importing the modules here (not via a helper) keeps their types.
+    try:
+        from rdkit import Chem  # noqa: PLC0415
+        from rdkit.Chem import rdDistGeom, rdForceFieldHelpers  # noqa: PLC0415
+    except ImportError as exc:
+        raise ImportError(
+            'pyvtst.io.from_smiles needs RDKit: pip install "pyvtst[rdkit]"'
+        ) from exc
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -50,26 +44,28 @@ def from_smiles(
     if charge is None:
         charge = Chem.GetFormalCharge(mol)
     if mult is None:
-        mult = Descriptors.NumRadicalElectrons(mol) + 1
+        mult = sum(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms()) + 1
     mol = Chem.AddHs(mol)
 
     if mol.GetNumAtoms() == 1:
         positions = np.zeros((1, 3))
     else:
-        params = AllChem.ETKDGv3()
-        params.randomSeed = seed
+        params = rdDistGeom.ETKDGv3()
+        # rdkit-stubs declares this property setter without types.
+        params.randomSeed = seed  # type: ignore[assignment]
         conf_ids = list(
-            AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+            rdDistGeom.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
         )
         if not conf_ids:
             raise RuntimeError(
                 f"could not embed a 3D conformer for SMILES {smiles!r}; "
                 "try raising n_conformers or changing seed"
             )
-        if AllChem.MMFFHasAllMoleculeParams(mol):
-            results = AllChem.MMFFOptimizeMoleculeConfs(mol)
-        elif AllChem.UFFHasAllMoleculeParams(mol):
-            results = AllChem.UFFOptimizeMoleculeConfs(mol)
+        ff = rdForceFieldHelpers
+        if ff.MMFFHasAllMoleculeParams(mol):
+            results = ff.MMFFOptimizeMoleculeConfs(mol)
+        elif ff.UFFHasAllMoleculeParams(mol):
+            results = ff.UFFOptimizeMoleculeConfs(mol)
         else:
             results = None
         if results:

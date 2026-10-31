@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip("rdkit")
-from rdkit.Chem import AllChem
+from rdkit.Chem import rdDistGeom
 
 from pyvtst.io import from_smiles
 
@@ -51,7 +51,7 @@ def test_invalid_smiles():
 
 
 def test_embedding_failure(monkeypatch):
-    monkeypatch.setattr(AllChem, "EmbedMultipleConfs", lambda *args, **kwargs: [])
+    monkeypatch.setattr(rdDistGeom, "EmbedMultipleConfs", lambda *args, **kwargs: [])
     with pytest.raises(RuntimeError, match="CCO") as excinfo:
         from_smiles("CCO")
     message = str(excinfo.value)
