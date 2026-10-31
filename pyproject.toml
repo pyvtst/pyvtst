@@ -1,12 +1,108 @@
 [project]
 name = "pyvtst"
-version = "0.0.1"
-description = "Placeholder release reserving the pyvtst name."
+version = "0.1.0.dev0"
+description = "Thermal rate constants for gas-phase reactions from conventional and variational transition state theory with tunneling corrections."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+license = "BSD-3-Clause"
 authors = [{ name = "Emilian R" }]
-classifiers = ["Development Status :: 1 - Planning"]
+keywords = ["chemistry", "kinetics", "transition state theory", "VTST", "tunneling"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
+
+[project.optional-dependencies]
+ase = ["ase>=3.22"]
+rdkit = ["rdkit>=2023.9"]
+
+[dependency-groups]
+dev = [
+    "bandit[toml]>=1.9.4",
+    "import-linter>=2.15",
+    "mypy>=2.4.1",
+    "pytest>=8",
+    "ruff>=0.17.3",
+    "scipy-stubs>=1.15.3.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.14"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # isort
+    "B",       # bugbear
+    "UP",      # pyupgrade
+    "SIM",     # simplify
+    "C4",      # comprehensions
+    "NPY",     # numpy
+    "PT",      # pytest style
+    "RUF",
+]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["src", "tests"]
+warn_unreachable = true
+# ASE ships py.typed but many of its methods are unannotated.
+untyped_calls_exclude = ["ase"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+
+[tool.importlinter]
+root_package = "pyvtst"
+include_external_packages = true
+exclude_type_checking_imports = true
+
+# Hexagonal layering. Adapter packages (io, engines, optimizers, stores) sit
+# above ports, which sit above core; adapters do not import each other.
+# Parenthesised layers are optional, so planned packages can be listed now.
+[[tool.importlinter.contracts]]
+name = "Hexagonal layers"
+type = "layers"
+containers = ["pyvtst"]
+layers = [
+    "(reaction)",
+    "io | (engines) | (optimizers) | (stores)",
+    "(ports)",
+    "core",
+]
+# Molecule.from_xyz / from_ase / from_smiles delegate to pyvtst.io inside the
+# method body, so core never imports io at module load time.
+ignore_imports = ["pyvtst.core.molecule -> pyvtst.io.*"]
+
+# Direct imports only: the indirect path core.molecule -> io -> ase is the
+# allowed Molecule.from_* delegation, and the layers contract already keeps
+# core out of io. "pyvtst.ports.**" covers submodules only; add "pyvtst.ports"
+# itself once the package exists (a missing module is an error here).
+[[tool.importlinter.contracts]]
+name = "Core and ports use only numpy and scipy"
+type = "forbidden"
+source_modules = ["pyvtst.core", "pyvtst.ports.**"]
+forbidden_modules = ["ase", "rdkit", "pyscf", "geometric", "h5py"]
+allow_indirect_imports = true
