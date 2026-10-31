@@ -1,0 +1,12 @@
+[project]
+name = "pyvtst"
+version = "0.0.1"
+description = "Placeholder release reserving the pyvtst name."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Emilian R" }]
+classifiers = ["Development Status :: 1 - Planning"]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.14"]
+build-backend = "uv_build"
