@@ -34,7 +34,7 @@ def test_other_reference_values():
 
 
 def test_public_import_path():
-    from pyvtst.units import BOHR_TO_ANGSTROM
+    from pyvtst.units import BOHR_TO_ANGSTROM  # noqa: PLC0415
 
     assert isinstance(BOHR_TO_ANGSTROM, float)
     assert BOHR_TO_ANGSTROM > 0

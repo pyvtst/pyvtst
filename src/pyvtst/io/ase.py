@@ -13,13 +13,15 @@ if TYPE_CHECKING:
     import ase
 
 
-def _require_ase() -> None:
+def _ase_atoms() -> type[ase.Atoms]:
+    # ASE is optional, so it is imported on first use rather than at load time.
     try:
-        import ase  # noqa: F401
+        from ase import Atoms  # noqa: PLC0415
     except ImportError as exc:
         raise ImportError(
-            'Molecule.from_ase / to_ase needs ASE: pip install "pyvtst[ase]"'
+            'pyvtst.io.from_ase / to_ase needs ASE: pip install "pyvtst[ase]"'
         ) from exc
+    return Atoms
 
 
 def from_ase(
@@ -37,7 +39,7 @@ def from_ase(
     masses (average atomic weights) are ignored in favour of pyvtst's isotope
     masses unless ``masses`` is given. Cells and calculators are ignored.
     """
-    _require_ase()
+    _ase_atoms()
     info = atoms.info
     if mult is None:
         mult = info["multiplicity"] if "multiplicity" in info else info.get("spin", 1)
@@ -54,9 +56,7 @@ def from_ase(
 
 def to_ase(molecule: Molecule) -> ase.Atoms:
     """Return a new non-periodic ``ase.Atoms`` with the molecule's masses and info."""
-    _require_ase()
-    from ase import Atoms
-
+    Atoms = _ase_atoms()
     return Atoms(
         symbols=list(molecule.symbols),
         positions=molecule.coords_angstrom,

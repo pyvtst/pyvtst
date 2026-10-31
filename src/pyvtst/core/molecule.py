@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 import operator
-import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, SupportsIndex
+from typing import Any, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
@@ -15,10 +14,6 @@ import numpy.typing as npt
 from pyvtst.core.elements import canonical_symbol, element
 from pyvtst.core.units import BOHR_TO_ANGSTROM
 
-if TYPE_CHECKING:
-    import ase
-
-PathLike = str | os.PathLike[str]
 FloatArray = npt.NDArray[np.float64]
 
 
@@ -37,7 +32,8 @@ class Molecule:
         name: Optional label.
 
     Instances are immutable and compare by value; use :meth:`replace` to get a
-    modified copy. They are deliberately unhashable.
+    modified copy. They are deliberately unhashable. Readers and writers for
+    XYZ files, ASE and SMILES live in :mod:`pyvtst.io`.
     """
 
     # The constructor accepts array-like input and normalizes it, so it is
@@ -150,93 +146,3 @@ class Molecule:
     def coords_angstrom(self) -> FloatArray:
         """Coordinates in ångström, as a new array."""
         return self.coords * BOHR_TO_ANGSTROM
-
-    # Structure I/O. Adapters are imported inside each method so that
-    # pyvtst.core never imports pyvtst.io or a third-party tool at load time.
-
-    @classmethod
-    def from_xyz(
-        cls,
-        path: PathLike,
-        charge: int = 0,
-        mult: int = 1,
-        masses: npt.ArrayLike | None = None,
-        symmetry_number: int = 1,
-        name: str | None = None,
-    ) -> Molecule:
-        """Read the first frame of an XYZ file (coordinates in ångström)."""
-        from pyvtst.io.xyz import read_xyz
-
-        return read_xyz(
-            path,
-            charge=charge,
-            mult=mult,
-            masses=masses,
-            symmetry_number=symmetry_number,
-            name=name,
-        )
-
-    def to_xyz(self, path: PathLike) -> None:
-        """Write the molecule as an XYZ file (coordinates in ångström)."""
-        from pyvtst.io.xyz import write_xyz
-
-        write_xyz(self, path)
-
-    @classmethod
-    def from_ase(
-        cls,
-        atoms: ase.Atoms,
-        charge: int | None = None,
-        mult: int | None = None,
-        masses: npt.ArrayLike | None = None,
-        symmetry_number: int = 1,
-        name: str | None = None,
-    ) -> Molecule:
-        """Build a molecule from an ``ase.Atoms`` object. Needs ``pyvtst[ase]``."""
-        from pyvtst.io.ase import from_ase
-
-        return from_ase(
-            atoms,
-            charge=charge,
-            mult=mult,
-            masses=masses,
-            symmetry_number=symmetry_number,
-            name=name,
-        )
-
-    def to_ase(self) -> ase.Atoms:
-        """Convert to a new ``ase.Atoms`` object. Needs ``pyvtst[ase]``."""
-        from pyvtst.io.ase import to_ase
-
-        return to_ase(self)
-
-    @classmethod
-    def from_smiles(
-        cls,
-        smiles: str,
-        charge: int | None = None,
-        mult: int | None = None,
-        n_conformers: int = 10,
-        seed: int = 0xF00D,
-        masses: npt.ArrayLike | None = None,
-        symmetry_number: int = 1,
-        name: str | None = None,
-    ) -> Molecule:
-        """Generate a 3D starting geometry from SMILES. Needs ``pyvtst[rdkit]``.
-
-        Embeds ``n_conformers`` conformers with ETKDG, pre-optimizes them with a
-        force field and returns the lowest-energy one. The result is a guess
-        for later optimization, for stable species (minima) only.
-        """
-        from pyvtst.io.rdkit import from_smiles
-
-        return from_smiles(
-            smiles,
-            charge=charge,
-            mult=mult,
-            n_conformers=n_conformers,
-            seed=seed,
-            masses=masses,
-            symmetry_number=symmetry_number,
-            name=name,
-        )

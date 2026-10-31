@@ -12,12 +12,13 @@ from pyvtst.core.units import BOHR_TO_ANGSTROM
 
 
 def _require_rdkit() -> tuple[ModuleType, ModuleType, ModuleType]:
+    # RDKit is optional, so it is imported on first use rather than at load time.
     try:
-        from rdkit import Chem
-        from rdkit.Chem import AllChem, Descriptors
+        from rdkit import Chem  # noqa: PLC0415
+        from rdkit.Chem import AllChem, Descriptors  # noqa: PLC0415
     except ImportError as exc:
         raise ImportError(
-            'Molecule.from_smiles needs RDKit: pip install "pyvtst[rdkit]"'
+            'pyvtst.io.from_smiles needs RDKit: pip install "pyvtst[rdkit]"'
         ) from exc
     return Chem, AllChem, Descriptors
 
@@ -32,11 +33,14 @@ def from_smiles(
     symmetry_number: int = 1,
     name: str | None = None,
 ) -> Molecule:
-    """Embed ``n_conformers`` ETKDG conformers and return the lowest-energy one.
+    """Generate a 3D starting geometry from SMILES. Needs ``pyvtst[rdkit]``.
 
-    Conformers are pre-optimized with MMFF94 when it has parameters for the
-    molecule, otherwise UFF, otherwise left as embedded. Charge defaults to the
-    sum of formal charges and multiplicity to radical electrons + 1.
+    Embeds ``n_conformers`` ETKDG conformers, pre-optimizes them with MMFF94
+    when it has parameters for the molecule, otherwise UFF, otherwise leaves
+    them as embedded, and returns the lowest-energy one. Charge defaults to the
+    sum of formal charges, multiplicity to radical electrons + 1 and the name
+    to the SMILES. The result is a guess for later optimization, for stable
+    species (minima) only.
     """
     Chem, AllChem, Descriptors = _require_rdkit()
 
