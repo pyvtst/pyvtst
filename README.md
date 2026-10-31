@@ -59,9 +59,9 @@ water = Molecule(
 )
 engine = PySCFEngine("B3LYP", "def2-SVP")
 
-engine.energy(water)    # hartree
+engine.energy(water)  # hartree
 engine.gradient(water)  # hartree/bohr, shape (3, 3)
-engine.hessian(water)   # hartree/bohr², shape (9, 9), not mass-weighted
+engine.hessian(water)  # hartree/bohr², shape (9, 9), not mass-weighted
 ```
 
 The molecule's charge and multiplicity are used as given. Singlets get a
