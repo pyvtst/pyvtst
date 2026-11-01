@@ -195,7 +195,9 @@ def curvilinear_generalized_modes(
     on curved paths imaginary. Here that term is removed, the coordinates are
     reduced to a non-redundant set, the path direction is projected out in the
     metric of the Wilson G matrix and the projected G·F problem is solved
-    (C. F. Jackels, Z. Gu and D. G. Truhlar, J. Chem. Phys. 102, 3188 (1995)).
+    (C. F. Jackels, Z. Gu and D. G. Truhlar, J. Chem. Phys. 102, 3188 (1995);
+    for redundant sets, Y.-Y. Chuang and D. G. Truhlar, J. Phys. Chem. A 102,
+    242 (1998)).
     At a stationary point the result equals :func:`generalized_normal_modes`
     for any set that spans the internal space. Away from one it depends on the
     set, redundant coordinates included, since the set decides which motions

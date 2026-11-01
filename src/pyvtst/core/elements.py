@@ -2,8 +2,8 @@
 
 Each entry gives the element symbol, atomic number, the mass of its most
 abundant isotope in amu and its covalent radius in ångström. Masses are from
-the NIST "Atomic Weights and Isotopic Compositions for All Elements" tables
-(J. S. Coursey et al., NIST Standard Reference Database 144, https://www.nist.gov/pml/atomic-weights-and-isotopic-compositions-relative-atomic-masses),
+the NIST "Atomic Weights and Isotopic Compositions with Relative Atomic Masses"
+tables (J. S. Coursey et al., NIST Standard Reference Database 144, https://www.nist.gov/pml/atomic-weights-and-isotopic-compositions-relative-atomic-masses),
 which take relative atomic masses from the Atomic Mass Evaluation.
 
 Covalent radii in ångström are from B. Cordero et al., "Covalent radii

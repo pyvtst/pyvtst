@@ -2,7 +2,8 @@
 
 Canonical variational TST (CVT) places the dividing surface, at each
 temperature, where the generalized TST rate along the minimum-energy path is
-lowest: D. G. Truhlar and B. C. Garrett, Acc. Chem. Res. 13, 440 (1980).
+lowest: B. C. Garrett and D. G. Truhlar, J. Phys. Chem. 83, 1052 (1979);
+D. G. Truhlar and B. C. Garrett, Acc. Chem. Res. 13, 440 (1980).
 """
 
 from __future__ import annotations

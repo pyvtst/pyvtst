@@ -228,7 +228,7 @@ next step would go uphill (try a smaller `ds`), gives a warning;
 
 | `coordinates` | Generalized frequencies |
 | --- | --- |
-| `"redundant"` (default) | Curvilinear, in redundant internal coordinates (Jackels, Gu and Truhlar, *J. Chem. Phys.* 102, 3188 (1995)) |
+| `"redundant"` (default) | Curvilinear, in redundant internal coordinates (Jackels, Gu and Truhlar, *J. Chem. Phys.* 102, 3188 (1995); Chuang and Truhlar, *J. Phys. Chem. A* 102, 242 (1998)) |
 | `"cartesian"` | Rectilinear, from the projected Cartesian Hessian |
 
 Away from the transition state the Cartesian Hessian includes the gradient

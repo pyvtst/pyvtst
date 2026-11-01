@@ -11,10 +11,9 @@ singlet Morse curve E1 and an anti-Morse triplet curve E3:
 
 Parameters: D = 4.7466 eV, b = 1.9420 1/Å, r0 = 0.7416 Å are a Morse fit to
 H2 (they agree with De, re and ωe = 4401 cm⁻¹ of ground-state H2 to 0.1%),
-and k = 0.18 is the usual Sato parameter for H3 (S. Sato, J. Chem. Phys. 23,
-592 (1955)). The surface has a collinear, symmetric saddle at r = 1.73 bohr,
-5.3 kcal/mol above H + H2. It is a model for tests, not an accurate H3
-surface.
+and k = 0.18 is the Sato parameter (S. Sato, J. Chem. Phys. 23, 592 (1955)).
+The surface has a collinear, symmetric saddle at r = 1.73 bohr, 5.3 kcal/mol
+above H + H2. It is a model for tests, not an accurate H3 surface.
 """
 
 from __future__ import annotations
