@@ -1,11 +1,23 @@
 import numpy as np
 import pytest
+import scipy.linalg
 
+from pyvtst.core.internals import auto_internals, values, wilson_b
 from pyvtst.core.mep import generalized_zpe, transition_vector
 from pyvtst.core.stationary import StationaryPoint
-from pyvtst.core.units import AMU_TO_ME, CM1_TO_HARTREE
-from pyvtst.core.vib import generalized_normal_modes, normal_modes
-from tests.core.hessians import random_rotation, water, water_hessian
+from pyvtst.core.units import AMU_TO_ME, CM1_TO_HARTREE, HARTREE_TO_CM1
+from pyvtst.core.vib import (
+    curvilinear_generalized_modes,
+    generalized_normal_modes,
+    normal_modes,
+)
+from tests.core.hessians import (
+    TRIATOMIC_INTERNALS,
+    quadratic_triatomic,
+    random_rotation,
+    water,
+    water_hessian,
+)
 from tests.fakes.leps import LEPSEngine, collinear_h3, saddle_distance
 
 
@@ -98,6 +110,159 @@ def test_rejects_wrong_gradient_shape():
 def test_transition_vector_matches_the_imaginary_mode(leps_ts):
     v = transition_vector(leps_ts)
     assert abs(v @ leps_ts.modes[0]) == pytest.approx(1.0, abs=1e-12)
+
+
+# Curvilinear generalized modes
+
+
+def test_curvilinear_agrees_at_the_saddle_point(leps_ts):
+    mol = leps_ts.molecule
+    hessian = LEPSEngine().hessian(mol)
+    cartesian, _ = generalized_normal_modes(mol, hessian, direction=leps_ts.modes[0])
+    curvilinear, modes = curvilinear_generalized_modes(
+        mol, hessian, auto_internals(mol), direction=leps_ts.modes[0]
+    )
+    np.testing.assert_allclose(curvilinear, cartesian, rtol=0, atol=1e-3)
+    assert modes.shape == (3, 9)
+    np.testing.assert_allclose(modes @ modes.T, np.eye(3), atol=1e-12)
+
+
+def test_curvilinear_linear_geometry_has_3n_minus_6_modes(leps_ts):
+    engine = LEPSEngine()
+    mol = collinear_h3(1.5, 2.1)
+    freqs, _ = curvilinear_generalized_modes(
+        mol,
+        engine.hessian(mol),
+        auto_internals(leps_ts.molecule),
+        gradient=engine.gradient(mol),
+        reference=leps_ts.molecule,
+    )
+    assert freqs.shape == (3,)
+    assert freqs[0] == pytest.approx(freqs[1], abs=1e-3)
+
+
+def test_curvilinear_bent_geometry_has_3n_minus_7_modes():
+    gradient, hessian = quadratic_triatomic_point()
+    freqs, modes = curvilinear_generalized_modes(
+        water(), hessian, TRIATOMIC_INTERNALS, gradient=gradient
+    )
+    assert freqs.shape == (2,)
+    assert modes.shape == (2, 9)
+
+
+def test_linear_bend_follows_a_bent_geometry(leps_ts):
+    # Bonds plus both components of a linear bend from the collinear saddle
+    # over-span a bent geometry, which still has 3N-7 modes.
+    engine = LEPSEngine()
+    ts = leps_ts.molecule
+    shift = np.zeros((3, 3))
+    shift[0] = [0.1, 0.15, 0.0]
+    bent = ts.replace(coords=ts.coords + shift)
+    freqs, _ = curvilinear_generalized_modes(
+        bent,
+        engine.hessian(bent),
+        auto_internals(ts),
+        gradient=engine.gradient(bent),
+        reference=ts,
+    )
+    assert freqs.shape == (2,)
+
+
+def test_curvilinear_coverage_error():
+    gradient, hessian = quadratic_triatomic_point()
+    with pytest.raises(ValueError, match=r"2 of 3 internal directions at s = 0\.1"):
+        curvilinear_generalized_modes(
+            water(),
+            hessian,
+            TRIATOMIC_INTERNALS[:2],
+            gradient=gradient,
+            where=" at s = 0.1",
+        )
+
+
+def test_curvilinear_vanishing_gradient_uses_the_direction(leps_ts):
+    mol = leps_ts.molecule
+    hessian = LEPSEngine().hessian(mol)
+    internals = auto_internals(mol)
+    with_tiny = curvilinear_generalized_modes(
+        mol, hessian, internals, gradient=np.full(9, 1e-10), direction=leps_ts.modes[0]
+    )
+    without = curvilinear_generalized_modes(
+        mol, hessian, internals, direction=leps_ts.modes[0]
+    )
+    np.testing.assert_array_equal(with_tiny[0], without[0])
+    with pytest.raises(ValueError, match="direction"):
+        curvilinear_generalized_modes(mol, hessian, internals)
+
+
+QUADRATIC_K = np.diag([0.5, 0.5, 0.16])
+
+
+def quadratic_rest():
+    # The first bond is 0.1 bohr longer than at rest: the gradient is along it.
+    return values(water(), TRIATOMIC_INTERNALS) - [0.1, 0.0, 0.0]
+
+
+def quadratic_triatomic_point():
+    return quadratic_triatomic(water(), QUADRATIC_K, quadratic_rest())
+
+
+def test_potential_quadratic_in_internal_coordinates():
+    mol = water()
+    gradient, hessian = quadratic_triatomic_point()
+    curvilinear, _ = curvilinear_generalized_modes(
+        mol, hessian, TRIATOMIC_INTERNALS, gradient=gradient
+    )
+    cartesian, _ = generalized_normal_modes(mol, hessian, gradient=gradient)
+
+    # Wilson GF in unit-metric coordinates y = G^(-1/2) q, with the gradient
+    # direction projected out.
+    b = wilson_b(mol, TRIATOMIC_INTERNALS)
+    inv_m = 1.0 / np.repeat(mol.masses * AMU_TO_ME, 3)
+    g_half = np.real(scipy.linalg.sqrtm(b @ (inv_m[:, None] * b.T)))
+    d = g_half @ QUADRATIC_K @ (values(mol, TRIATOMIC_INTERNALS) - quadratic_rest())
+    d /= np.linalg.norm(d)
+    projector = np.eye(3) - np.outer(d, d)
+    eigvals = np.linalg.eigvalsh(projector @ g_half @ QUADRATIC_K @ g_half @ projector)
+    expected = np.sqrt(np.delete(eigvals, np.argmin(np.abs(eigvals)))) * HARTREE_TO_CM1
+
+    np.testing.assert_allclose(curvilinear, expected, rtol=0, atol=1e-6)
+    assert np.max(np.abs(cartesian - expected)) > 1.0
+
+
+def test_redundancy_does_not_change_the_result_at_a_stationary_point():
+    mol = water()
+    hessian = water_hessian()
+    _, modes = normal_modes(mol, hessian)
+    with_hh = (*TRIATOMIC_INTERNALS, ("bond", 1, 2))
+    non_redundant, _ = curvilinear_generalized_modes(
+        mol, hessian, TRIATOMIC_INTERNALS, direction=modes[2]
+    )
+    redundant, _ = curvilinear_generalized_modes(
+        mol, hessian, with_hh, direction=modes[2]
+    )
+    np.testing.assert_allclose(redundant, non_redundant, rtol=0, atol=1e-6)
+
+    # Away from it the gradient term depends on the set, but not the count.
+    gradient, hessian = quadratic_triatomic_point()
+    freqs, _ = curvilinear_generalized_modes(mol, hessian, with_hh, gradient=gradient)
+    assert freqs.shape == (2,)
+
+
+def test_rigid_body_invariance_of_curvilinear_frequencies():
+    mol = water()
+    gradient, hessian = quadratic_triatomic_point()
+    freqs, _ = curvilinear_generalized_modes(
+        mol, hessian, TRIATOMIC_INTERNALS, gradient=gradient
+    )
+
+    rot = random_rotation(11)
+    big = np.kron(np.eye(3), rot)
+    moved = mol.replace(coords=mol.coords @ rot.T + [0.7, -1.2, 2.3])
+    freqs_moved, _ = curvilinear_generalized_modes(
+        moved, big @ hessian @ big.T, TRIATOMIC_INTERNALS, gradient=big @ gradient
+    )
+    np.testing.assert_allclose(freqs_moved, freqs, rtol=0, atol=1e-6)
 
 
 # Generalized zero-point energy

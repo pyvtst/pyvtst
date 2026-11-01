@@ -506,3 +506,22 @@ def test_inconsistent_lengths_are_rejected():
         make_path(energies=[0.0, 1.0])
     with pytest.raises(ValueError, match="ts_index"):
         make_path(ts_index=5)
+
+
+def test_coordinate_defaults():
+    path = make_path()
+    assert path.coordinates == "cartesian"
+    assert path.internals == ()
+
+
+def test_coordinates_are_part_of_equality():
+    internals = (("bond", 0, 1), ("bond", 1, 2), ("linear_bend", 0, 1, 2))
+    redundant = make_path(coordinates="redundant", internals=internals)
+    assert redundant == make_path(coordinates="redundant", internals=list(internals))
+    assert redundant != make_path(coordinates="redundant", internals=internals[:2])
+    assert make_path() != make_path(coordinates="redundant")
+
+
+def test_invalid_coordinates_are_rejected():
+    with pytest.raises(ValueError, match="coordinates"):
+        make_path(coordinates="polar")

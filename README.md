@@ -170,6 +170,12 @@ engine.hessian(h2)  # computed once, then read from results.h5
 A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
 its own store, and the `Reaction`'s optimized geometries go to `store=`.
 
+Results are keyed by the level of theory and by the engine, so two programs
+that name the same method and basis never share optimizations, path points or
+energies. The engine is identified by its class name; pass
+`CachedEngine(engine, store, engine_id=...)` to keep a cache across a class
+rename.
+
 ### Reaction path
 
 `compute_mep()` traces the minimum-energy path (MEP) through the transition
@@ -187,7 +193,8 @@ value per point. V_MEP is the energy relative to the reactants and V_a^G adds
 the generalized zero-point energy, relative to the reactants' zero-point
 level, both in hartree. `path.frequencies` holds the generalized frequencies
 (cm⁻¹) at each point with a Hessian: translations, rotations and the path
-direction are projected out.
+direction are projected out. They are curvilinear by default; see
+[Coordinates of the generalized frequencies](#coordinates-of-the-generalized-frequencies).
 
 | `method` | Default `ds` | Hessians |
 | --- | --- | --- |
@@ -203,7 +210,7 @@ only at points with a Hessian.
 Every point goes to the `Reaction`'s store as soon as it is computed. An
 interrupted `compute_mep()` resumes from the last stored point, wider limits
 compute only the new points, and a repeated call is free. A different
-`method`, `ds` or `hessian_every` starts a new path.
+`method`, `ds`, `hessian_every` or engine starts a new path.
 
 Which side is s < 0 is decided from geometry, so list the transition state's
 atoms in the same order as the reactants' atoms concatenated (and the
@@ -212,6 +219,68 @@ is still computed, `path.oriented` is false, and a warning says the sign of s
 is arbitrary. A side that stops before its limit, at a minimum or because the
 next step would go uphill (try a smaller `ds`), gives a warning;
 `path.stop_reactant` and `path.stop_product` say why each side stopped.
+
+#### Coordinates of the generalized frequencies
+
+`coordinates=` sets how the generalized frequencies are computed:
+
+| `coordinates` | Generalized frequencies |
+| --- | --- |
+| `"redundant"` (default) | Curvilinear, in redundant internal coordinates (Jackels, Gu and Truhlar, *J. Chem. Phys.* 102, 3188 (1995)) |
+| `"cartesian"` | Rectilinear, from the projected Cartesian Hessian |
+
+Away from the transition state the Cartesian Hessian includes the gradient
+times the curvature of straight-line motion. On curved paths that term turns
+real bends imaginary, and V_a^G gets kinks where they drop out of the
+zero-point energy. Internal coordinates bend with the molecule, so the term is
+removed. Both give the same frequencies at the transition state. Away from
+it, curvilinear frequencies depend on the set of internal coordinates, since
+the set decides which motions count as curvilinear. When a Cartesian path has
+large imaginary frequencies, the warning that lists them suggests
+`coordinates="redundant"`.
+
+By default the internal coordinates are generated from the optimized
+transition state. Atoms closer than 1.3 times the sum of their covalent radii
+are bonded, and separate fragments are bonded through their closest atoms.
+Every two bonds on one atom give an angle, or a linear bend from 170°, and
+every chain of three bonds gives a torsion. `path.internals` records the set,
+and the same set is used at every point. To choose your own, pass tuples with
+atom indices in the transition state's order:
+
+```python
+path = rxn.compute_mep(
+    internals=[
+        ("bond", 0, 1),
+        ("bond", 1, 2),
+        ("linear_bend", 0, 1, 2),  # two components, smooth through 180°
+    ]
+)
+```
+
+The kinds are `("bond", i, j)`, `("angle", i, j, k)` with apex j,
+`("linear_bend", i, j, k)` with middle atom j and `("torsion", i, j, k, l)`
+about the j–k bond. Redundant sets are fine. The set must span every internal
+motion, which is checked at the transition state before tracing and again at
+every point with a Hessian. When it does not, `compute_mep()` raises a
+`ValueError` that says how many directions are missing, where, and which atoms
+move most in them:
+
+```text
+internal coordinates span 2 of 4 internal directions at the transition state;
+2 directions are missing, moving mostly atoms 1 (H), 2 (H), 0 (H); add
+coordinates that involve them with internals=
+```
+
+Add a coordinate on those atoms: an angle, a linear bend for a nearly
+collinear group, or a torsion. pyvtst never falls back to Cartesian
+coordinates on its own.
+
+The coordinates do not change the path, only the frequencies computed from
+its stored Hessians, so switching makes no engine calls:
+
+```python
+cartesian = rxn.compute_mep(coordinates="cartesian")
+```
 
 `plot_path` and `plot_paths` (with the `plot` extra) draw V_MEP as a solid
 line and V_a^G as a dashed one, mark the transition state and return the
