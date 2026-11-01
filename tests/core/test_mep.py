@@ -406,7 +406,9 @@ def test_symmetric_case_keeps_the_plus_branch_as_products():
     # Atoms 0 and 1 are the two ends of the symmetric saddle, so the reactant
     # H2 distance changes the same way on both sides.
     r = saddle_distance()
-    ts = Molecule(["H", "H", "H"], [[-r, 0, 0], [r, 0, 0], [0, 0, 0]], mult=2)
+    ts = Molecule(
+        ["H", "H", "H"], [[-r, 0.0, 0.0], [r, 0.0, 0.0], [0.0, 0.0, 0.0]], mult=2
+    )
     engine = LEPSEngine()
     sp = StationaryPoint.from_hessian(ts, engine.energy(ts), engine.hessian(ts))
     h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [R0, 0.0, 0.0]])
