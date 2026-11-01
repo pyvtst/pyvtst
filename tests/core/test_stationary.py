@@ -152,3 +152,75 @@ def test_single_atom_has_zero_zpe():
     assert sp.frequencies.shape == (0,)
     assert sp.zpe == 0.0
     assert sp.kind == "minimum"
+
+
+# Frequency scale factor
+
+
+def test_default_scale_changes_nothing():
+    mol = linear_triatomic()
+    hessian = linear_saddle_hessian(mol)
+    plain = StationaryPoint.from_hessian(mol, -1.6, hessian)
+    unit = StationaryPoint.from_hessian(mol, -1.6, hessian, freq_scale=1.0)
+    assert plain.freq_scale == unit.freq_scale == 1.0
+    np.testing.assert_array_equal(plain.frequencies, unit.frequencies)
+    assert plain.modes is not None
+    assert unit.modes is not None
+    np.testing.assert_array_equal(plain.modes, unit.modes)
+    assert plain.zpe == unit.zpe
+
+
+def test_every_frequency_is_scaled():
+    mol = linear_triatomic()
+    hessian = linear_saddle_hessian(mol)
+    plain = StationaryPoint.from_hessian(mol, -1.6, hessian)
+    scaled = StationaryPoint.from_hessian(mol, -1.6, hessian, freq_scale=0.95)
+    assert scaled.freq_scale == 0.95
+    assert scaled.kind == "saddle"
+    np.testing.assert_allclose(scaled.frequencies, 0.95 * plain.frequencies, rtol=1e-10)
+    assert plain.imaginary_frequency is not None
+    assert scaled.imaginary_frequency == pytest.approx(
+        0.95 * plain.imaginary_frequency, rel=1e-10
+    )
+    assert scaled.modes is not None
+    assert plain.modes is not None
+    np.testing.assert_array_equal(scaled.modes, plain.modes)
+    assert scaled.zpe == pytest.approx(0.95 * plain.zpe, rel=1e-10)
+
+
+def test_frequencies_given_directly_are_scaled():
+    sp = StationaryPoint.from_frequencies(
+        bent(), -1.0, [1000.0, 2000.0, 3000.0], freq_scale=0.9
+    )
+    np.testing.assert_allclose(sp.frequencies, [900.0, 1800.0, 2700.0], rtol=1e-12)
+    assert sp.freq_scale == 0.9
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf"), "x"])
+def test_invalid_scale_is_rejected(bad):
+    with pytest.raises(ValueError, match="freq_scale"):
+        StationaryPoint.from_frequencies(bent(), -1.0, [1.0, 2.0, 3.0], freq_scale=bad)
+    with pytest.raises(ValueError, match="freq_scale"):
+        StationaryPoint(bent(), -1.0, np.array([1.0, 2.0, 3.0]), freq_scale=bad)
+
+
+def test_invalid_scale_message_gives_the_value():
+    with pytest.raises(ValueError, match=r"-1\.0"):
+        StationaryPoint.from_frequencies(bent(), -1.0, [1.0, 2.0, 3.0], freq_scale=-1)
+
+
+def test_scale_is_part_of_equality():
+    a = StationaryPoint(bent(), -1.0, np.array([900.0, 1800.0, 2700.0]))
+    b = StationaryPoint(bent(), -1.0, np.array([900.0, 1800.0, 2700.0]), freq_scale=0.9)
+    assert a != b
+
+
+def test_threshold_applies_to_scaled_frequencies():
+    freqs = [-48.0, 1600.0, 3700.0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        plain = StationaryPoint.from_frequencies(bent(), -1.0, freqs)
+    scaled = StationaryPoint.from_frequencies(bent(), -1.0, freqs, freq_scale=1.078)
+    assert plain.kind == "minimum"
+    assert scaled.kind == "saddle"
+    assert scaled.imaginary_frequency == pytest.approx(48.0 * 1.078)
