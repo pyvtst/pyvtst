@@ -1,6 +1,6 @@
 [project]
 name = "pyvtst"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Thermal rate constants for gas-phase reactions from conventional and variational transition state theory with tunneling corrections."
 readme = "README.md"
 requires-python = ">=3.11"
