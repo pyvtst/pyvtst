@@ -40,6 +40,7 @@ from pyvtst.core.mep import (
 )
 from pyvtst.core.molecule import Molecule
 from pyvtst.core.partition import temperatures
+from pyvtst.core.path_tunneling import PathTunnelingResult, path_tunneling
 from pyvtst.core.rates import CVTResult, cvt_rate, tst_rate, zpe_energy
 from pyvtst.core.stationary import (
     StationaryPoint,
@@ -53,6 +54,7 @@ from pyvtst.core.vib import (
     curvilinear_generalized_modes,
     generalized_normal_modes,
     internal_basis,
+    path_curvature,
 )
 from pyvtst.engines.cached import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
@@ -65,8 +67,8 @@ from pyvtst.stores import open_store
 FloatArray = npt.NDArray[np.float64]
 
 THEORIES = ("tst", "cvt")
-TUNNELING = (None, "wigner", "eckart")
-_LATER = "is not implemented yet; it is planned for a later pyvtst release"
+TUNNELING = (None, "wigner", "eckart", "zct", "sct")
+PATH_TUNNELING = ("zct", "sct")
 
 DEFAULT_DS: dict[Method, float] = {"lqa": 0.01, "euler": 0.001}  # bohr
 DEFAULT_HESSIAN_EVERY = 10
@@ -103,6 +105,7 @@ class RateResult:
         k_tst: Conventional TST rate constants without tunneling, for either
             theory, so ``cvt.k / k_tst`` is the variational effect.
         kappa: Tunneling transmission coefficients (all 1 without tunneling).
+            For ``"zct"`` and ``"sct"``, ``path_tunneling.kappa``.
         theory: The rate theory, ``"tst"`` or ``"cvt"``.
         tunneling: The tunneling correction, or ``None``.
         units: Unit of ``k`` and ``k_tst``: ``"s^-1"`` or
@@ -111,6 +114,9 @@ class RateResult:
         cvt: For ``"cvt"``, the variational details: rate constants without
             tunneling, s*(T), the path points used, k^GT(T, s) and
             ΔG^GT,°(T, s). ``None`` for ``"tst"``.
+        path_tunneling: For ``"zct"`` and ``"sct"``, the tunneling details:
+            E₀, V^AG and its s, the CAG factor, V_a^G and μ_eff/μ along the
+            path, and P(E). ``None`` for the other tunneling corrections.
 
     All arrays have one value per temperature and are read-only.
     """
@@ -124,6 +130,7 @@ class RateResult:
     units: str
     barrier_kcal: float
     cvt: CVTResult | None = None
+    path_tunneling: PathTunnelingResult | None = None
 
     def table(self) -> str:
         """Return a plain-text table, one row per T.
@@ -284,7 +291,7 @@ class Reaction:
         self,
         T: npt.ArrayLike,
         theory: Literal["tst", "cvt"] | str = "tst",
-        tunneling: Literal["wigner", "eckart"] | str | None = None,
+        tunneling: Literal["wigner", "eckart", "zct", "sct"] | str | None = None,
         path: ReactionPath | None = None,
     ) -> RateResult:
         """Return rate constants at temperatures ``T`` (K), optimizing first.
@@ -294,36 +301,46 @@ class Reaction:
             theory: ``"tst"`` (conventional transition state theory) or
                 ``"cvt"`` (canonical variational TST along the minimum-energy
                 path).
-            tunneling: ``None``, ``"wigner"`` or ``"eckart"``. ``"zct"`` is
-                reserved and raises ``NotImplementedError``. Wigner and Eckart
-                are computed from the saddle point for both theories, so with
-                CVT they do not follow the variational transition state.
-            path: For ``"cvt"``, the path to use, from :meth:`compute_mep`.
-                When ``None``, :meth:`compute_mep` runs with its defaults
-                (s from -0.5 to 0.5 bohr), which is free once stored. Pass a
-                path to use a wider s range, another step size or other
-                coordinates.
+            tunneling: ``None``, ``"wigner"``, ``"eckart"``, ``"zct"``
+                (zero-curvature tunneling) or ``"sct"`` (small-curvature
+                tunneling). Wigner and Eckart are computed from the saddle
+                point for both theories, so with CVT they do not follow the
+                variational transition state. ZCT and SCT are computed along
+                the path, and refer κ to s = 0 for ``"tst"`` and to s*(T) for
+                ``"cvt"``.
+            path: For ``"cvt"``, ``"zct"`` or ``"sct"``, the path to use, from
+                :meth:`compute_mep`. When ``None``, :meth:`compute_mep` runs
+                with its defaults (s from -0.5 to 0.5 bohr), which is free once
+                stored. Pass a path to use a wider s range, another step size
+                or other coordinates.
 
         For CVT, a variational transition state at either end of the path
-        gives a warning that the path's s range should be widened.
+        gives a warning that the path's s range should be widened. For ZCT and
+        SCT, a path that ends before V_a^G falls to the reactants' or
+        products' zero-point level gives a warning that κ is underestimated at
+        low temperature; the default path is usually that short, so pass a
+        wider one for accurate tunneling.
 
         Raises:
             ValueError: Unknown ``theory`` or ``tunneling``, invalid ``T``,
-                ``path`` given without ``theory="cvt"`` or from another
-                reaction, or an Eckart barrier that is not positive in both
-                directions.
+                ``path`` given without ``theory="cvt"``, ``"zct"`` or ``"sct"``,
+                or from another reaction or scale factor, an Eckart barrier
+                that is not positive in both directions, or an adiabatic
+                barrier that is not above the lowest tunneling energy.
         """
         if theory not in THEORIES:
             raise ValueError(f"theory: expected 'tst' or 'cvt', got {theory!r}")
-        if tunneling == "zct":
-            raise NotImplementedError(f"tunneling 'zct' {_LATER}")
         if tunneling not in TUNNELING:
             raise ValueError(
-                f"tunneling: expected None, 'wigner' or 'eckart', got {tunneling!r}"
+                "tunneling: expected None, 'wigner', 'eckart', 'zct' or 'sct', got "
+                f"{tunneling!r}"
             )
+        needs_path = theory == "cvt" or tunneling in PATH_TUNNELING
         if path is not None:
-            if theory != "cvt":
-                raise ValueError('path: is used only with theory="cvt"')
+            if not needs_path:
+                raise ValueError(
+                    'path: is used only with theory="cvt" or tunneling="zct" or "sct"'
+                )
             if not isinstance(path, ReactionPath):
                 raise TypeError(
                     f"path: expected a ReactionPath, got {type(path).__name__}"
@@ -333,7 +350,8 @@ class Reaction:
         points = self.optimize()
         tst = tst_rate(points.reactants, points.ts, t)
         cvt = None
-        if theory == "cvt":
+        pt = None
+        if needs_path:
             if path is None:
                 path = self.compute_mep()
             elif path.molecules[path.ts_index] != points.ts.molecule:
@@ -347,6 +365,8 @@ class Reaction:
                     f"this reaction's by {self._freq_scale}; recompute it with "
                     "this reaction's compute_mep()"
                 )
+        if theory == "cvt":
+            path = cast(ReactionPath, path)
             cvt = cvt_rate(points.reactants, path, t, points.ts.imag_threshold)
         # optimize() checked that the transition state is a first-order saddle.
         nu = cast(float, points.ts.imaginary_frequency)
@@ -358,6 +378,19 @@ class Reaction:
             if points.products is not None:
                 v2 = zpe_energy(points.ts) - sum(zpe_energy(p) for p in points.products)
             kappa = eckart(v1, v2, nu, t)
+        elif tunneling in PATH_TUNNELING:
+            pt = path_tunneling(
+                points.reactants,
+                cast(ReactionPath, path),
+                t,
+                cast(Literal["zct", "sct"], tunneling),
+                products=points.products,
+                s_ref=0.0 if cvt is None else cvt.s_star,
+                imag_threshold=points.ts.imag_threshold,
+                # CVT has already warned about the points it left out.
+                warn_excluded=cvt is None,
+            )
+            kappa = np.array(pt.kappa)
         else:
             kappa = np.ones_like(t)
         k_tst = np.array(tst.k)
@@ -374,6 +407,7 @@ class Reaction:
             units=tst.units,
             barrier_kcal=tst.barrier_zpe * HARTREE_TO_KCAL_PER_MOL,
             cvt=cvt,
+            path_tunneling=pt,
         )
 
     def compute_mep(
@@ -538,17 +572,19 @@ class Reaction:
             + [r.index * step for r in product]
         )
         frequencies: list[FloatArray | None] = []
+        curvature: list[FloatArray | None] = []
         zpe = np.full(len(ordered), np.nan)
         imaginary: list[str] = []
         for i, record in enumerate(ordered):
             if record.index % every:
                 frequencies.append(None)
+                curvature.append(None)
                 continue
             hessian = self.engine.hessian(record.molecule)
             gradient = None if record.index == 0 else record.gradient
             ts_mode = ts.modes[0] if ts.modes is not None else None
             if coords == "redundant":
-                freqs, _ = curvilinear_generalized_modes(
+                freqs, modes = curvilinear_generalized_modes(
                     record.molecule,
                     hessian,
                     used,
@@ -558,9 +594,14 @@ class Reaction:
                     where=f" at s = {s[i]:+.4f} bohr",
                 )
             else:
-                freqs, _ = generalized_normal_modes(
+                freqs, modes = generalized_normal_modes(
                     record.molecule, hessian, gradient, ts_mode
                 )
+            curvature.append(
+                None
+                if gradient is None
+                else path_curvature(record.molecule, hessian, gradient, modes)
+            )
             freqs = freqs * self._freq_scale
             frequencies.append(freqs)
             zpe[i] = generalized_zpe(freqs, ts.imag_threshold)
@@ -599,6 +640,7 @@ class Reaction:
             coordinates=coords,
             internals=used,
             freq_scale=self._freq_scale,
+            curvature=tuple(curvature),
         )
 
     def _trace_stored(

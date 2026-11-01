@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import scipy.linalg
 
+from pyvtst import Molecule
 from pyvtst.core.internals import auto_internals, values, wilson_b
 from pyvtst.core.mep import generalized_zpe, transition_vector
 from pyvtst.core.stationary import StationaryPoint
@@ -10,6 +11,7 @@ from pyvtst.core.vib import (
     curvilinear_generalized_modes,
     generalized_normal_modes,
     normal_modes,
+    path_curvature,
 )
 from tests.core.hessians import (
     TRIATOMIC_INTERNALS,
@@ -284,3 +286,53 @@ def test_threshold_is_configurable():
     assert generalized_zpe([-100.0, 1000.0], imag_threshold=150.0) == pytest.approx(
         0.5 * 1100.0 * CM1_TO_HARTREE, rel=1e-14
     )
+
+
+# Path curvature
+
+
+def _unit_direction(engine, mol):
+    g = engine.gradient(mol).reshape(-1) / np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
+    return g / np.linalg.norm(g)
+
+
+def test_path_curvature_matches_finite_difference_of_the_direction():
+    engine = LEPSEngine()
+    mol = Molecule(
+        ["H", "H", "H"], [[-1.6, 0.0, 0.0], [0.0, 0.0, 0.0], [1.9, 0.3, 0.0]], mult=2
+    )
+    gradient = engine.gradient(mol)
+    hessian = engine.hessian(mol)
+    _, modes = generalized_normal_modes(mol, hessian, gradient)
+    kappa = path_curvature(mol, hessian, gradient, modes)
+    assert kappa.shape == (modes.shape[0],)
+
+    # Step along the steepest-descent direction in electron-mass-weighted
+    # coordinates; dv/ds is the central difference of the unit direction.
+    sqrt_m = np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
+    v = _unit_direction(engine, mol)
+    eps = 1e-3
+
+    def moved(step):
+        return mol.replace(coords=mol.coords + (step * v / sqrt_m).reshape(-1, 3))
+
+    dv = _unit_direction(engine, moved(-eps)) - _unit_direction(engine, moved(eps))
+    dv /= 2.0 * eps
+    expected = modes @ dv * np.sqrt(AMU_TO_ME)
+    assert np.linalg.norm(expected) > 0.1
+    np.testing.assert_allclose(
+        kappa, expected, rtol=0, atol=1e-4 * np.abs(expected).max()
+    )
+
+
+def test_path_curvature_needs_a_gradient(leps_ts):
+    mol = leps_ts.molecule
+    with pytest.raises(ValueError, match="gradient"):
+        path_curvature(mol, LEPSEngine().hessian(mol), np.zeros(9), leps_ts.modes[1:])
+
+
+def test_path_curvature_checks_mode_shape():
+    engine = LEPSEngine()
+    mol = collinear_h3(1.5, 2.1)
+    with pytest.raises(ValueError, match="modes"):
+        path_curvature(mol, engine.hessian(mol), engine.gradient(mol), np.ones((2, 6)))

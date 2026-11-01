@@ -243,6 +243,60 @@ def curvilinear_generalized_modes(
     return _modes_in(t.T @ q[:, 1:], f)
 
 
+def path_curvature(
+    mol: Molecule,
+    hessian: npt.ArrayLike,
+    gradient: npt.ArrayLike,
+    modes: npt.ArrayLike,
+) -> FloatArray:
+    """Return the reaction-path curvature components along generalized modes.
+
+    With F the mass-weighted Hessian, g the mass-weighted gradient and
+    v = g/|g| the path direction, the derivative of v along the steepest-descent
+    path is dv/ds = -(I - v vᵀ) F v / |g|, and the components are
+    κ_m = L_mᵀ dv/ds. F is the Cartesian Hessian whatever coordinates gave the
+    modes: the curvature belongs to the path, and the modes only decide how it
+    splits among them. Only κ_m² enters the tunneling, so the overall sign is a
+    convention.
+
+    Args:
+        mol: The geometry.
+        hessian: Cartesian Hessian in hartree/bohr², shape (3N, 3N).
+        gradient: Cartesian gradient in hartree/bohr, shape (N, 3) or (3N,).
+        modes: Generalized normal modes as orthonormal rows in mass-weighted
+            Cartesian coordinates, shape (k, 3N), as returned by
+            :func:`generalized_normal_modes` or
+            :func:`curvilinear_generalized_modes`.
+
+    Returns:
+        κ_m in bohr⁻¹ for s in mass-scaled coordinates with μ = 1 amu (the
+        reaction coordinate of :mod:`pyvtst.core.mep`), shape (k,).
+
+    Raises:
+        ValueError: The gradient norm is below 1e-8 hartree/bohr (at a
+            stationary point the curvature needs third derivatives), or an
+            array has the wrong shape.
+
+    References:
+        M. Page and J. W. McIver, J. Chem. Phys. 88, 922 (1988).
+    """
+    f = mass_weighted_hessian(mol, hessian)
+    n = 3 * mol.n_atoms
+    g = _gradient(mol, gradient)
+    if g is None or np.linalg.norm(g) < 1e-8:
+        raise ValueError("gradient: vanishes; the path curvature needs a gradient")
+    lm = np.asarray(modes, dtype=np.float64)
+    if lm.ndim != 2 or lm.shape[1] != n:
+        raise ValueError(f"modes: expected shape (k, {n}), got {lm.shape}")
+    g_mw = g / np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
+    norm = float(np.linalg.norm(g_mw))
+    v = g_mw / norm
+    fv = f @ v
+    dv = -(fv - (v @ fv) * v) / norm
+    # dv/ds above is per electron-mass-weighted bohr; s is scaled by 1 amu.
+    return np.asarray(lm @ dv * np.sqrt(AMU_TO_ME), dtype=np.float64)
+
+
 def _modes_in(internal: FloatArray, f: FloatArray) -> tuple[FloatArray, FloatArray]:
     """Diagonalize the mass-weighted Hessian ``f`` within the ``internal`` columns."""
     eigvals, eigvecs = scipy.linalg.eigh(internal.T @ f @ internal)

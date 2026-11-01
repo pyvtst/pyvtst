@@ -10,6 +10,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -263,16 +264,27 @@ def _check_reactants(
     return reactants, t
 
 
-def _generalized_si(
-    reactants: tuple[StationaryPoint, ...],
+def usable_points(
     path: ReactionPath,
-    t: FloatArray,
-    imag_threshold: float,
-) -> tuple[FloatArray, FloatArray]:
-    """s and ln k^GT in molecule-based SI units at the usable points."""
-    reference = sum(zpe_energy(sp) for sp in reactants)
-    s: list[float] = []
-    columns: list[FloatArray] = []
+    imag_threshold: float = DEFAULT_IMAG_THRESHOLD,
+    *,
+    warn: tuple[str, str] | None = None,
+    stacklevel: int = 2,
+) -> list[int]:
+    """Indices of the path points that variational TST and tunneling can use.
+
+    A point is usable when it has generalized frequencies and none is below
+    ``-imag_threshold`` cm⁻¹.
+
+    Args:
+        path: The minimum-energy path.
+        imag_threshold: Imaginary-frequency threshold in cm⁻¹.
+        warn: ``(prefix, what)``: when given and points are left out, one
+            warning ``"<prefix>: path points ... are left out of <what>: ..."``
+            lists each one's s and imaginary frequencies.
+        stacklevel: Passed to :func:`warnings.warn`, counted from the caller.
+    """
+    usable: list[int] = []
     excluded: list[str] = []
     for i, freqs in enumerate(path.frequencies):
         if freqs is None:
@@ -282,32 +294,59 @@ def _generalized_si(
             listed = ", ".join(f"{f:.1f}" for f in large)
             excluded.append(f"s = {path.s[i]:+.4f} ([{listed}] cm^-1)")
             continue
+        usable.append(i)
+    if excluded and warn is not None:
+        prefix, what = warn
+        warnings.warn(
+            f"{prefix}: path points with imaginary generalized frequencies above "
+            f"the {imag_threshold:g} cm^-1 threshold are left out of {what}: "
+            f"{'; '.join(excluded)}",
+            stacklevel=stacklevel + 1,
+        )
+    return usable
+
+
+def point_zpe(frequencies: FloatArray) -> float:
+    """Generalized ZPE of a usable point in hartree, from the frequency magnitudes.
+
+    Summed as in ``StationaryPoint.zpe`` and ``ln_q_total``, so the transition
+    state gives exactly the conventional TST barrier and rate.
+    """
+    return float(0.5 * np.sum(np.sort(np.abs(frequencies))) * CM1_TO_HARTREE)
+
+
+def _generalized_si(
+    reactants: tuple[StationaryPoint, ...],
+    path: ReactionPath,
+    t: FloatArray,
+    imag_threshold: float,
+) -> tuple[FloatArray, FloatArray]:
+    """s and ln k^GT in molecule-based SI units at the usable points."""
+    reference = sum(zpe_energy(sp) for sp in reactants)
+    usable = usable_points(
+        path,
+        imag_threshold,
+        warn=("CVT", "the variational search"),
+        stacklevel=3,
+    )
+    if not usable:
+        raise ValueError(
+            "path: no point has usable generalized frequencies; CVT needs at least one"
+        )
+    columns: list[FloatArray] = []
+    for i in usable:
+        freqs = cast(FloatArray, path.frequencies[i])
         mol = path.molecules[i]
         nu = np.sort(np.abs(freqs))
-        # Summed as in StationaryPoint.zpe and ln_q_total, so the transition
-        # state gives exactly the conventional TST rate.
-        zpe = float(0.5 * np.sum(nu) * CM1_TO_HARTREE)
         ln_q = (
             ln_q_trans_per_volume(mol, t)
             + ln_q_rot(mol, t)
             + ln_q_vib(nu, t)
             + ln_q_elec(mol, t)
         )
-        barrier = (float(path.energies[i]) + zpe) - reference
-        s.append(float(path.s[i]))
+        barrier = (float(path.energies[i]) + point_zpe(freqs)) - reference
         columns.append(_ln_rate_si(ln_q, barrier, reactants, t))
-    if excluded:
-        warnings.warn(
-            "CVT: path points with imaginary generalized frequencies above the "
-            f"{imag_threshold:g} cm^-1 threshold are left out of the variational "
-            f"search: {'; '.join(excluded)}",
-            stacklevel=3,
-        )
-    if not s:
-        raise ValueError(
-            "path: no point has usable generalized frequencies; CVT needs at least one"
-        )
-    return np.array(s), np.stack(columns, axis=1)
+    return np.array(path.s[usable]), np.stack(columns, axis=1)
 
 
 def _parabola_minimum(x: FloatArray, y: FloatArray) -> tuple[float, float] | None:
@@ -324,14 +363,18 @@ def _parabola_minimum(x: FloatArray, y: FloatArray) -> tuple[float, float] | Non
     return float(xv), float(yv)
 
 
+def path_end_name(path: ReactionPath, first: bool) -> str:
+    """Name of a path end: the reactant or product side, or its sign of s."""
+    if path.oriented:
+        return "reactant side" if first else "product side"
+    return "s < 0 end" if first else "s > 0 end"
+
+
 def _warn_at_end(
     path: ReactionPath, s: FloatArray, end: int, temps: list[float]
 ) -> None:
     first = end == 0
-    if path.oriented:
-        side = "reactant side" if first else "product side"
-    else:
-        side = "s < 0 end" if first else "s > 0 end"
+    side = path_end_name(path, first)
     listed = ", ".join(f"{v:g}" for v in temps)
     warnings.warn(
         f"CVT: at T = {listed} K the generalized rate is lowest at the "
