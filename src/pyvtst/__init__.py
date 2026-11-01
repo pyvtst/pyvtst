@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from pyvtst.plot import plot_free_energy, plot_path, plot_paths
     from pyvtst.reaction import RateResult, Reaction
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 __all__ = [
     "Molecule",
