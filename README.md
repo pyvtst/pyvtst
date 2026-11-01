@@ -16,8 +16,8 @@ Thermal rate constants for gas-phase chemical reactions from conventional and
 canonical variational transition state theory, with tunneling corrections.
 
 > **Status: pre-alpha.** Conventional and canonical variational TST rate
-> constants with Wigner and Eckart tunneling, and minimum-energy paths, are
-> available; zero-curvature tunneling is not yet.
+> constants with Wigner, Eckart, zero-curvature and small-curvature tunneling,
+> and minimum-energy paths, are available.
 
 ## Installation
 
@@ -57,8 +57,9 @@ print(result.table())
 ```
 
 `rates(T, theory="tst", tunneling=None)` accepts `theory="tst"` or `"cvt"`
-(see [Variational TST](#variational-tst)) and `tunneling=None`, `"wigner"`
-or `"eckart"`. Eckart uses an asymmetric barrier when `products=` are given to
+(see [Variational TST](#variational-tst)) and `tunneling=None`, `"wigner"`,
+`"eckart"`, `"zct"` or `"sct"` (see
+[Multidimensional tunneling](#multidimensional-tunneling)). Eckart uses an asymmetric barrier when `products=` are given to
 `Reaction` and a symmetric one otherwise. Unimolecular rate constants are in
 s⁻¹ and bimolecular ones in cm³ molecule⁻¹ s⁻¹. `result.k`, `result.k_tst` and
 `result.kappa` are numpy arrays, one value per temperature.
@@ -326,7 +327,7 @@ the path points used (`s`), k^GT(T, s) (`k_gt`) and ΔG^GT,°(T, s) at the 1 bar
 standard state (`delta_g`, hartree). Between path points s* is refined with a
 parabola through the three points around the lowest k^GT. The symmetry number
 of the transition state is used at every s. Wigner and Eckart κ(T) are the
-saddle-point values in both theories.
+saddle-point values in both theories; ZCT and SCT follow the path.
 
 When s* falls on the first or last usable point of the path at some
 temperature, a warning names the temperatures and the side: the bottleneck may
@@ -343,6 +344,45 @@ from pyvtst import plot_free_energy
 ax = plot_free_energy(result, units="kJ/mol")
 ax.figure.savefig("h3_cvt.png")
 ```
+
+### Multidimensional tunneling
+
+`tunneling="zct"` (zero-curvature) and `"sct"` (small-curvature) compute κ(T)
+along the minimum-energy path rather than from the saddle point alone. The
+barrier is the vibrationally adiabatic ground-state curve V_a^G(s), and the
+transmission probability P(E) is the uniform semiclassical one through it. SCT
+also lets the tunneling path cut the corner of a curved reaction path, through
+an effective mass μ_eff(s) ≤ μ computed from the path's curvature
+(`path.curvature`, from `compute_mep()`), so κ^SCT ≥ κ^ZCT. Both work with
+either theory:
+
+```python
+path = rxn.compute_mep(s_min=-2.0, s_max=2.0)
+tst_sct = rxn.rates([200, 300, 500], tunneling="sct", path=path)
+cvt_sct = rxn.rates([200, 300, 500], theory="cvt", tunneling="sct", path=path)
+print(cvt_sct.table())
+print(cvt_sct.path_tunneling.e0, cvt_sct.path_tunneling.kappa_cag)
+```
+
+κ includes the classical adiabatic ground-state (CAG) factor
+exp(−[V^AG − V_a^G(s_ref)]/k_B T), which refers it to the rate theory it
+multiplies: s_ref = 0 for TST and s*(T) for CVT. That gives TST/ZCT, TST/SCT,
+CVT/ZCT and CVT/SCT as reported in the literature. `result.path_tunneling`
+holds E₀, the maximum V^AG and its s, the CAG factor, V_a^G and μ_eff/μ at the
+path points, and P(E).
+
+Tunneling starts at E₀, the higher of the reactants' and products' zero-point
+levels, so the path must reach down to it on both sides. The default path
+(±0.5 bohr) rarely does. When an end of the path lies above E₀, E₀ is raised to
+it and a warning names the side and the gap: κ is then too low at low
+temperature, so compute a wider path, as above, and pass it with `path=`.
+Wider limits reuse the stored points. Give `products=` to `Reaction` so the
+product side has a zero-point level to reach.
+
+References: A. Fernández-Ramos, B. A. Ellingson, B. C. Garrett and
+D. G. Truhlar, *Rev. Comput. Chem.* 23, 125 (2007); for the SCT effective
+mass, Y.-P. Liu, G. C. Lynch, T. N. Truong, D.-h. Lu, D. G. Truhlar and
+B. C. Garrett, *J. Am. Chem. Soc.* 115, 2408 (1993).
 
 ### Frequency scale factors
 
@@ -363,8 +403,8 @@ diagonalization. ZPEs, partition functions, V_a^G(s), the TST and CVT rate
 constants, and the imaginary frequency used by Wigner and Eckart therefore
 all use scaled values. Normal modes, geometries and the path itself do not
 change. The factor is recorded as `freq_scale` on each `StationaryPoint` and
-`ReactionPath`. `rates(theory="cvt", path=p)` rejects a path computed with
-another factor.
+`ReactionPath`. `rates(..., path=p)` rejects a path computed with another
+factor.
 
 Published factors depend on the property they were fitted to (ZPE,
 fundamentals, enthalpy or entropy). For rate constants use a ZPE scale factor

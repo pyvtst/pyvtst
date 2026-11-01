@@ -540,3 +540,37 @@ def test_path_frequency_scale_is_part_of_equality():
 def test_path_rejects_invalid_frequency_scale(bad):
     with pytest.raises(ValueError, match="freq_scale"):
         make_path(freq_scale=bad)
+
+
+CURVATURE = (np.array([0.0, 0.1, 0.2]), None, None, None, np.array([0.0, 0.3, 0.4]))
+
+
+def test_curvature_defaults_to_none():
+    path = make_path()
+    assert path.curvature is None
+    np.testing.assert_array_equal(path.has_curvature, [False] * 5)
+
+
+def test_curvature_is_frozen_and_masked():
+    path = make_path(curvature=CURVATURE)
+    np.testing.assert_array_equal(path.has_curvature, [True, False, False, False, True])
+    with pytest.raises(ValueError, match="read-only"):
+        path.curvature[0][0] = 1.0
+    with pytest.raises(ValueError, match="read-only"):
+        path.has_curvature[0] = False
+
+
+def test_curvature_is_part_of_equality():
+    assert make_path(curvature=CURVATURE) == make_path(curvature=list(CURVATURE))
+    assert make_path(curvature=CURVATURE) != make_path()
+    other = (*CURVATURE[:4], np.array([0.0, 0.3, 0.5]))
+    assert make_path(curvature=CURVATURE) != make_path(curvature=other)
+
+
+def test_mis_sized_curvature_is_rejected():
+    with pytest.raises(ValueError, match="curvature: expected 5 entries"):
+        make_path(curvature=CURVATURE[:4])
+    with pytest.raises(ValueError, match="point 0 has 2 components, expected 3"):
+        make_path(curvature=(np.array([0.1, 0.2]), *CURVATURE[1:]))
+    with pytest.raises(ValueError, match="point 1 has 3 components, expected none"):
+        make_path(curvature=(CURVATURE[0], np.zeros(3), *CURVATURE[2:]))

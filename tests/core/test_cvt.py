@@ -5,7 +5,6 @@ import pytest
 from scipy import constants as sc
 
 from pyvtst import Molecule
-from pyvtst.core.mep import ReactionPath, generalized_zpe
 from pyvtst.core.partition import (
     ln_q_elec,
     ln_q_rot,
@@ -23,6 +22,7 @@ from pyvtst.core.rates import (
 from pyvtst.core.stationary import StationaryPoint
 from pyvtst.core.units import BOLTZMANN_AU, CM1_TO_HARTREE
 from pyvtst.core.vib import is_linear
+from tests.core.paths import make_path, reactants
 from tests.core.test_rates import h2, h3_ts, h_atom
 
 T_GRID = np.array([200.0, 300.0, 600.0, 1000.0, 2000.0])
@@ -30,38 +30,6 @@ S_GRID = np.linspace(-0.5, 0.5, 21)
 TS_FREQS = [-1500.0, 900.0, 900.0, 2000.0]
 GENERALIZED = [900.0, 900.0, 2000.0]
 E_TS = -1.16
-
-
-def reactants():
-    return [h2(), h_atom()]
-
-
-def make_path(s, energies, frequencies, molecules=None, oriented=True, freq_scale=1.0):
-    """A hand-made path; ``frequencies`` holds one array (or None) per point."""
-    s = np.asarray(s, dtype=np.float64)
-    n = s.size
-    mols = (h3_ts().molecule,) * n if molecules is None else tuple(molecules)
-    freqs = tuple(None if f is None else np.asarray(f, float) for f in frequencies)
-    zpe = [np.nan if f is None else generalized_zpe(f) for f in freqs]
-    reacts = reactants()
-    return ReactionPath(
-        s=s,
-        molecules=mols,
-        energies=np.asarray(energies, dtype=np.float64),
-        gradients=np.zeros((n, mols[0].n_atoms, 3)),
-        frequencies=freqs,
-        zpe=np.array(zpe),
-        reference_energy=sum(r.energy for r in reacts),
-        reference_zpe_energy=sum(zpe_energy(r) for r in reacts),
-        ts_index=int(np.argmin(np.abs(s))),
-        method="lqa",
-        ds=0.05,
-        stop_reactant="s_limit",
-        stop_product="s_limit",
-        oriented=oriented,
-        coordinates="redundant",
-        freq_scale=freq_scale,
-    )
 
 
 def quadratic_path(s0=0.0, a=0.02):

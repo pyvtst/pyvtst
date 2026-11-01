@@ -9,7 +9,7 @@ from pyvtst.core.mep import generalized_zpe
 from pyvtst.core.rates import tst_rate, zpe_energy
 from pyvtst.core.stationary import StationaryPointError
 from pyvtst.core.tunneling import eckart, wigner
-from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
+from pyvtst.core.units import BOLTZMANN_AU, HARTREE_TO_KCAL_PER_MOL
 from pyvtst.core.vib import curvilinear_generalized_modes, generalized_normal_modes
 from pyvtst.engines import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
@@ -357,12 +357,6 @@ def test_rates_over_a_wide_range_and_second_call_is_free(rxn, engine):
     assert np.all(np.isfinite(first.k) & (first.k > 0))
 
 
-def test_zct_not_yet_available(engine, h2_stretched, h_atom, h3_ts_guess):
-    rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
-    with pytest.raises(NotImplementedError, match=r"zct.*not implemented yet"):
-        rxn.rates(300, tunneling="zct")
-
-
 def test_unknown_theory(engine, h2_stretched, h_atom, h3_ts_guess):
     rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
     with pytest.raises(ValueError, match="'tst' or 'cvt'"):
@@ -371,8 +365,9 @@ def test_unknown_theory(engine, h2_stretched, h_atom, h3_ts_guess):
 
 def test_unknown_tunneling_method(engine, h2_stretched, h_atom, h3_ts_guess):
     rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
-    with pytest.raises(ValueError, match="None, 'wigner' or 'eckart'"):
-        rxn.rates(300, tunneling="sct")
+    with pytest.raises(ValueError, match="None, 'wigner', 'eckart', 'zct' or 'sct'"):
+        rxn.rates(300, tunneling="lct")
+    assert sum(engine.calls.values()) == 0
 
 
 def test_invalid_temperature(engine, h2_stretched, h_atom, h3_ts_guess):
@@ -686,11 +681,12 @@ def test_path_from_another_reaction():
         rxn.rates(300.0, theory="cvt", path=p)
 
 
-def test_path_without_cvt(lqa_path):
+@pytest.mark.parametrize("tunneling", [None, "wigner", "eckart"])
+def test_path_without_cvt(lqa_path, tunneling):
     engine = CountingEngine()
     rxn = mep_reaction(engine)
-    with pytest.raises(ValueError, match='only with theory="cvt"'):
-        rxn.rates(300.0, path=lqa_path)
+    with pytest.raises(ValueError, match='only with theory="cvt" or tunneling="zct"'):
+        rxn.rates(300.0, tunneling=tunneling, path=lqa_path)
     assert sum(engine.calls.values()) == 0
     assert not rxn.optimizer.calls
 
@@ -1116,3 +1112,157 @@ def test_path_computed_with_another_frequency_scale():
     rxn = mep_reaction(LEPSEngine(), freq_scale=0.95)
     with pytest.raises(ValueError, match=r"scaled by 1\.0, this reaction's by 0\.95"):
         rxn.rates(300.0, theory="cvt", path=p)
+
+
+# Reaction-path curvature
+
+
+@pytest.fixture(scope="module")
+def cartesian_path():
+    return mep_reaction(LEPSEngine()).compute_mep(coordinates="cartesian")
+
+
+def total_curvature(path):
+    return np.array(
+        [np.nan if c is None else np.linalg.norm(c) for c in path.curvature]
+    )
+
+
+def test_curvature_agrees_with_the_traced_path(cartesian_path):
+    engine = LEPSEngine()
+
+    def direction(mol):
+        g = engine.gradient(mol).reshape(-1) / np.repeat(np.sqrt(mol.masses), 3)
+        return g / np.linalg.norm(g)
+
+    # Differencing neighbouring path points instead would amplify their small
+    # offsets from the true MEP by 1/|g|; each point is displaced on its own.
+    eps = 1e-4
+    checked = 0
+    for s, mol, c in zip(
+        cartesian_path.s,
+        cartesian_path.molecules,
+        cartesian_path.curvature,
+        strict=True,
+    ):
+        if c is None or abs(s) < 0.05:
+            continue
+        v = direction(mol)
+        step = (eps * v / np.repeat(np.sqrt(mol.masses), 3)).reshape(-1, 3)
+        minus = direction(mol.replace(coords=mol.coords - step))
+        plus = direction(mol.replace(coords=mol.coords + step))
+        expected = np.linalg.norm(minus - plus) / (2.0 * eps)
+        assert np.linalg.norm(c) == pytest.approx(expected, rel=1e-5)
+        checked += 1
+    assert checked > 80
+
+
+def test_total_curvature_does_not_depend_on_the_coordinates(cartesian_path):
+    redundant = mep_reaction(LEPSEngine()).compute_mep()
+    assert redundant.coordinates == "redundant"
+    np.testing.assert_array_equal(redundant.has_curvature, cartesian_path.has_curvature)
+    np.testing.assert_allclose(
+        total_curvature(redundant), total_curvature(cartesian_path), rtol=1e-8
+    )
+
+
+def test_curvature_entries_follow_the_hessians():
+    path = mep_reaction(LEPSEngine()).compute_mep(
+        -0.1, 0.1, method="euler", hessian_every=10
+    )
+    expected = path.has_frequencies.copy()
+    expected[path.ts_index] = False
+    np.testing.assert_array_equal(path.has_curvature, expected)
+    for c, f in zip(path.curvature, path.frequencies, strict=True):
+        if c is not None:
+            assert c.shape == f.shape
+
+
+def test_stored_path_gains_curvature():
+    store = MemoryStore()
+    first = mep_reaction(CountingEngine(), store).compute_mep(-0.1, 0.1)
+    engine = CountingEngine()
+    second = mep_reaction(engine, store).compute_mep(-0.1, 0.1)
+    assert sum(engine.calls.values()) == 0
+    assert second.curvature is not None
+    assert second == first
+
+
+# Multidimensional tunneling
+
+# The default ±0.5 bohr path is too short for the LEPS adiabatic curve to fall
+# to the reactants' zero-point level.
+too_short = pytest.mark.filterwarnings("ignore:tunneling. the path ends")
+
+
+@too_short
+def test_zct_and_sct_with_conventional_tst():
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    t = [300.0, 1000.0]
+    sct = rxn.rates(t, tunneling="sct")
+    assert engine.calls["hessian"] > 3
+    zct = rxn.rates(t, tunneling="zct")
+    np.testing.assert_array_equal(sct.k, sct.k_tst * sct.kappa)
+    assert np.all(sct.kappa >= zct.kappa)
+    assert np.all(zct.kappa > 1.0)
+    assert sct.path_tunneling is not None
+    np.testing.assert_allclose(sct.path_tunneling.kappa_cag, 1.0, rtol=0, atol=1e-12)
+
+
+@too_short
+def test_zct_and_sct_with_cvt():
+    rxn = mep_reaction(LEPSEngine())
+    t = [300.0, 1000.0]
+    result = rxn.rates(t, theory="cvt", tunneling="zct")
+    assert result.cvt is not None
+    assert result.path_tunneling is not None
+    np.testing.assert_array_equal(result.k, result.cvt.k * result.kappa)
+    pt = result.path_tunneling
+    v_ref = np.interp(result.cvt.s_star, pt.s, pt.v_ag)
+    expected = np.exp(-(pt.v_max - v_ref) / (BOLTZMANN_AU * np.array(t)))
+    np.testing.assert_allclose(pt.kappa_cag, expected, rtol=1e-6)
+
+
+@too_short
+def test_tunneling_on_a_given_path():
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    p = rxn.compute_mep(s_min=-1.0, s_max=1.0)
+    calls = sum(engine.calls.values())
+    result = rxn.rates(300.0, tunneling="zct", path=p)
+    assert sum(engine.calls.values()) == calls
+    assert result.path_tunneling is not None
+    np.testing.assert_array_equal(result.path_tunneling.s, p.s[p.has_frequencies])
+
+
+@too_short
+def test_tunneling_reuses_the_stored_path():
+    store = MemoryStore()
+    mep_reaction(CountingEngine(), store).compute_mep()
+    engine = CountingEngine()
+    mep_reaction(engine, store).rates(300.0, tunneling="sct")
+    assert sum(engine.calls.values()) == 0
+
+
+def test_tunneling_path_with_another_scale_factor():
+    p = mep_reaction(LEPSEngine()).compute_mep(-0.1, 0.1)
+    rxn = mep_reaction(LEPSEngine(), freq_scale=0.95)
+    with pytest.raises(ValueError, match=r"0\.95.*1\.0|1\.0.*0\.95"):
+        rxn.rates(300.0, tunneling="sct", path=p)
+
+
+@too_short
+def test_path_tunneling_details():
+    rxn = mep_reaction(LEPSEngine())
+    sct = rxn.rates([300.0, 600.0], tunneling="sct")
+    assert sct.path_tunneling is not None
+    assert sct.path_tunneling.method == "sct"
+    np.testing.assert_array_equal(sct.path_tunneling.kappa, sct.kappa)
+    assert rxn.rates(300.0, tunneling="eckart").path_tunneling is None
+    assert rxn.rates(300.0).path_tunneling is None
+
+
+def test_short_default_path_warns():
+    with pytest.warns(UserWarning, match="tunneling: the path ends"):
+        mep_reaction(LEPSEngine()).rates(300.0, tunneling="zct")

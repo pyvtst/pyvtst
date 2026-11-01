@@ -408,6 +408,12 @@ class ReactionPath:
             indices)`` tuples; empty for ``"cartesian"``.
         freq_scale: The scale factor ``frequencies`` already carry; ``zpe``
             and ``v_ag`` use the scaled values. Finite and > 0.
+        curvature: Reaction-path curvature components κ_m(s) in bohr⁻¹, one
+            per generalized frequency and in the same order, or ``None`` for
+            the transition state and points without a Hessian; see
+            :func:`pyvtst.core.vib.path_curvature`. ``None`` as a whole when
+            the path has no curvature data (built by hand). Not affected by
+            ``freq_scale``.
 
     All arrays are read-only. Instances compare by value.
     """
@@ -429,6 +435,7 @@ class ReactionPath:
     coordinates: Coordinates = "cartesian"
     internals: tuple[Internal, ...] = ()
     freq_scale: float = 1.0
+    curvature: tuple[FloatArray | None, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.coordinates not in COORDINATES:
@@ -453,6 +460,21 @@ class ReactionPath:
                 raise ValueError(f"{name}: expected {n} entries, got {size}")
         if not 0 <= self.ts_index < n:
             raise ValueError(f"ts_index: {self.ts_index} is out of range")
+        curvature = None
+        if self.curvature is not None:
+            curvature = tuple(None if c is None else _frozen(c) for c in self.curvature)
+            if len(curvature) != n:
+                raise ValueError(
+                    f"curvature: expected {n} entries, got {len(curvature)}"
+                )
+            for i, (c, f) in enumerate(zip(curvature, freqs, strict=True)):
+                if c is not None and (f is None or c.shape != f.shape):
+                    expected = "none" if f is None else f"{f.size}"
+                    raise ValueError(
+                        f"curvature: point {i} has {c.size} components, "
+                        f"expected {expected} (one per generalized frequency)"
+                    )
+        object.__setattr__(self, "curvature", curvature)
         object.__setattr__(self, "s", s)
         object.__setattr__(self, "molecules", tuple(self.molecules))
         object.__setattr__(self, "energies", energies)
@@ -470,11 +492,7 @@ class ReactionPath:
             and self.molecules == other.molecules
             and np.array_equal(self.energies, other.energies)
             and np.array_equal(self.gradients, other.gradients)
-            and len(self.frequencies) == len(other.frequencies)
-            and all(
-                a is b if a is None or b is None else np.array_equal(a, b)
-                for a, b in zip(self.frequencies, other.frequencies, strict=True)
-            )
+            and _same_optional(self.frequencies, other.frequencies)
             and np.array_equal(self.zpe, other.zpe, equal_nan=True)
             and self.reference_energy == other.reference_energy
             and self.reference_zpe_energy == other.reference_zpe_energy
@@ -487,6 +505,7 @@ class ReactionPath:
             and self.coordinates == other.coordinates
             and self.internals == other.internals
             and self.freq_scale == other.freq_scale
+            and _same_optional(self.curvature, other.curvature)
         )
 
     __hash__ = None  # type: ignore[assignment]
@@ -514,6 +533,14 @@ class ReactionPath:
         mask.flags.writeable = False
         return mask
 
+    @property
+    def has_curvature(self) -> npt.NDArray[np.bool_]:
+        """Whether each point has curvature components (all false without data)."""
+        curvature = self.curvature or (None,) * len(self)
+        mask = np.array([c is not None for c in curvature], dtype=bool)
+        mask.flags.writeable = False
+        return mask
+
     def table(self) -> str:
         """Return a plain-text table: s, V_MEP, V_a^G and ZPE, one row per point."""
         k = HARTREE_TO_KCAL_PER_MOL
@@ -526,6 +553,18 @@ class ReactionPath:
             s, v, va, z = (float(x) for x in row)
             lines.append(f"{s:>9.4f}  {v:>16.4f}  {va:>16.4f}  {z:>14.4f}")
         return "\n".join(lines)
+
+
+def _same_optional(
+    a: tuple[FloatArray | None, ...] | None, b: tuple[FloatArray | None, ...] | None
+) -> bool:
+    """Compare two optional tuples of optional arrays by value."""
+    if a is None or b is None:
+        return a is b
+    return len(a) == len(b) and all(
+        x is y if x is None or y is None else np.array_equal(x, y)
+        for x, y in zip(a, b, strict=True)
+    )
 
 
 def _frozen(values: npt.ArrayLike) -> FloatArray:
