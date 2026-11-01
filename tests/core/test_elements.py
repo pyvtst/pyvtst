@@ -1,6 +1,6 @@
 import pytest
 
-from pyvtst.core.elements import element
+from pyvtst.core.elements import _TABLE, element
 
 
 def test_carbon_12():
@@ -24,3 +24,13 @@ def test_table_covers_h_to_kr():
 def test_unknown_symbol(symbol):
     with pytest.raises(ValueError, match="element"):
         element(symbol)
+
+
+@pytest.mark.parametrize(("symbol", "radius"), [("H", 0.31), ("C", 0.76), ("O", 0.66)])
+def test_covalent_radius(symbol, radius):
+    assert element(symbol).covalent_radius == radius
+
+
+def test_every_element_has_a_positive_covalent_radius():
+    assert len(_TABLE) == 36
+    assert all(e.covalent_radius > 0 for e in _TABLE)

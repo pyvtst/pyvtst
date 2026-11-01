@@ -10,7 +10,7 @@ from pyvtst.core.rates import tst_rate, zpe_energy
 from pyvtst.core.stationary import StationaryPointError
 from pyvtst.core.tunneling import eckart
 from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
-from pyvtst.core.vib import generalized_normal_modes
+from pyvtst.core.vib import curvilinear_generalized_modes, generalized_normal_modes
 from pyvtst.engines import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
 from pyvtst.ports import ConvergenceError, OptimizationResult
@@ -815,6 +815,110 @@ def test_large_imaginary_generalized_frequency_warns(monkeypatch):
 
     monkeypatch.setattr("pyvtst.reaction.generalized_normal_modes", with_imaginary)
     with pytest.warns(UserWarning, match=r"s = -0\.0100 \(\[-200\.0\] cm\^-1\)"):
-        path = mep_reaction(LEPSEngine()).compute_mep(-0.01, 0.01)
+        path = mep_reaction(LEPSEngine()).compute_mep(
+            -0.01, 0.01, coordinates="cartesian"
+        )
     assert path.frequencies[0][0] == -200.0
     assert path.zpe[0] == pytest.approx(generalized_zpe(path.frequencies[0][1:]))
+
+
+# Coordinates of the generalized frequencies
+
+H3_INTERNALS = (("bond", 0, 1), ("bond", 1, 2), ("linear_bend", 0, 1, 2))
+
+
+def test_default_is_curvilinear(lqa_path):
+    assert lqa_path.coordinates == "redundant"
+    assert lqa_path.internals == H3_INTERNALS
+    assert all(f is not None and f.shape == (3,) for f in lqa_path.frequencies)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"coordinates": "polar"}, "coordinates"),
+        ({"coordinates": "cartesian", "internals": [("bond", 0, 1)]}, "internals"),
+        ({"internals": [("bond", 0, 7)]}, r"\('bond', 0, 7\)"),
+        ({"internals": [("wag", 0, 1, 2)]}, "wag"),
+    ],
+)
+def test_invalid_coordinate_arguments_fail_fast(kwargs, match):
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    with pytest.raises(ValueError, match=match):
+        rxn.compute_mep(**kwargs)
+    assert sum(engine.calls.values()) == 0
+    assert rxn.optimizer.calls == []
+
+
+def test_insufficient_internal_coordinates_at_the_transition_state():
+    store = MemoryStore()
+    rxn = mep_reaction(LEPSEngine(), store)
+    with pytest.raises(ValueError, match="2 of 4 internal directions at the trans"):
+        rxn.compute_mep(internals=[("bond", 0, 1), ("bond", 1, 2)])
+    assert list(store.keys("mep/")) == []
+
+
+def test_coverage_error_names_the_point(monkeypatch):
+    def bonds_only(mol, hessian, internals, *args, **kwargs):
+        return curvilinear_generalized_modes(mol, hessian, internals[:2], **kwargs)
+
+    monkeypatch.setattr("pyvtst.reaction.curvilinear_generalized_modes", bonds_only)
+    with pytest.raises(ValueError, match=r"2 of 4 .* at s = -0\.0100 bohr"):
+        mep_reaction(LEPSEngine()).compute_mep(-0.01, 0.01)
+
+
+def test_automatic_set_is_recorded():
+    store = MemoryStore()
+    path = mep_reaction(LEPSEngine(), store).compute_mep(-0.1, 0.1)
+    again = mep_reaction(LEPSEngine(), store).compute_mep(
+        -0.1, 0.1, internals=path.internals
+    )
+    assert again == path
+
+
+def test_switching_coordinates_is_free():
+    store = MemoryStore()
+    redundant = mep_reaction(CountingEngine(), store).compute_mep(-0.1, 0.1)
+    engine = CountingEngine()
+    cartesian = mep_reaction(engine, store).compute_mep(
+        -0.1, 0.1, coordinates="cartesian"
+    )
+    assert sum(engine.calls.values()) == 0
+    assert cartesian.coordinates == "cartesian"
+    assert cartesian.internals == ()
+    np.testing.assert_array_equal(cartesian.s, redundant.s)
+    np.testing.assert_array_equal(cartesian.energies, redundant.energies)
+    np.testing.assert_array_equal(cartesian.gradients, redundant.gradients)
+    assert cartesian != redundant
+
+
+def inject_imaginary(analysis):
+    """Wrap a frequency analysis so that every point gets -200 cm^-1."""
+
+    def wrapped(*args, **kwargs):
+        freqs, modes = analysis(*args, **kwargs)
+        return np.array([-200.0, *freqs[1:]]), modes
+
+    return wrapped
+
+
+def test_cartesian_warning_suggests_internal_coordinates(monkeypatch):
+    monkeypatch.setattr(
+        "pyvtst.reaction.generalized_normal_modes",
+        inject_imaginary(generalized_normal_modes),
+    )
+    with pytest.warns(UserWarning, match=r"s = -0\.4000 .*coordinates=\"redundant\""):
+        mep_reaction(LEPSEngine()).compute_mep(
+            -0.4, 0.4, ds=0.1, coordinates="cartesian"
+        )
+
+
+def test_redundant_warning_has_no_hint(monkeypatch):
+    monkeypatch.setattr(
+        "pyvtst.reaction.curvilinear_generalized_modes",
+        inject_imaginary(curvilinear_generalized_modes),
+    )
+    with pytest.warns(UserWarning, match=r"s = -0\.4000") as record:
+        mep_reaction(LEPSEngine()).compute_mep(-0.4, 0.4, ds=0.1)
+    assert all("coordinates=" not in str(w.message) for w in record)

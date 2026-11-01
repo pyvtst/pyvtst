@@ -15,9 +15,17 @@ import numpy as np
 import numpy.typing as npt
 
 from pyvtst.core.elements import formula
+from pyvtst.core.internals import (
+    Internal,
+    auto_internals,
+    check_span,
+    validate_internals,
+)
 from pyvtst.core.keys import cache_key
 from pyvtst.core.mep import (
+    COORDINATES,
     METHODS,
+    Coordinates,
     MEPPoint,
     Method,
     ReactionPath,
@@ -40,7 +48,11 @@ from pyvtst.core.stationary import (
 )
 from pyvtst.core.tunneling import eckart, wigner
 from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
-from pyvtst.core.vib import generalized_normal_modes, internal_basis
+from pyvtst.core.vib import (
+    curvilinear_generalized_modes,
+    generalized_normal_modes,
+    internal_basis,
+)
 from pyvtst.engines.cached import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
 from pyvtst.ports.engine import Engine
@@ -291,6 +303,8 @@ class Reaction:
         ds: float | None = None,
         method: Literal["lqa", "euler"] | str = "lqa",
         hessian_every: int | None = None,
+        coordinates: Literal["redundant", "cartesian"] | str = "redundant",
+        internals: Sequence[Sequence[object]] | None = None,
     ) -> ReactionPath:
         """Trace the minimum-energy path through the transition state.
 
@@ -311,6 +325,18 @@ class Reaction:
                 gradient only, a Hessian every ``hessian_every`` points).
             hessian_every: For ``"euler"``, compute a Hessian every this many
                 points, counting from the transition state. Defaults to 10.
+            coordinates: Coordinates of the generalized frequencies:
+                ``"redundant"`` (curvilinear, in redundant internal
+                coordinates) or ``"cartesian"``. Cartesian frequencies carry
+                the gradient times the curvature of straight-line motion, which
+                on curved paths turns real bends imaginary.
+            internals: For ``"redundant"``, the internal coordinates as
+                ``("bond", i, j)``, ``("angle", i, j, k)``,
+                ``("linear_bend", i, j, k)`` and ``("torsion", i, j, k, l)``
+                tuples, with atom indices in the transition state's order.
+                Generated from the optimized transition state when ``None``;
+                see :func:`pyvtst.core.internals.auto_internals`. The same set
+                is used at every point.
 
         Orientation needs the transition state's atoms in the same order, with
         the same elements and masses, as the reactants' atoms concatenated
@@ -319,15 +345,27 @@ class Reaction:
         before its limit (at a minimum, or because a step would go uphill)
         gives a warning.
 
+        The path itself does not depend on ``coordinates`` or ``internals``:
+        changing them recomputes the frequencies from stored Hessians, with no
+        engine calls.
+
         Raises:
-            ValueError: An argument is invalid; nothing has been computed.
+            ValueError: An argument is invalid, and nothing has been computed;
+                or the internal coordinates do not span every internal motion
+                at the transition state (before any path point is computed)
+                or at a later point (naming its s).
         """
         lo, hi, step, every, meth = _mep_parameters(
             s_min, s_max, ds, method, hessian_every
         )
+        coords, given = _coordinate_parameters(coordinates, internals, self.ts.n_atoms)
         points = self.optimize()
         ts = points.ts
         mol0 = ts.molecule
+        used: tuple[Internal, ...] = ()
+        if coords == "redundant":
+            used = auto_internals(mol0) if given is None else given
+            check_span(mol0, used, " at the transition state")
         tv = transition_vector(ts)
         sign = orient(
             mol0,
@@ -418,12 +456,23 @@ class Reaction:
             if record.index % every:
                 frequencies.append(None)
                 continue
-            freqs, _ = generalized_normal_modes(
-                record.molecule,
-                self.engine.hessian(record.molecule),
-                gradient=None if record.index == 0 else record.gradient,
-                direction=ts.modes[0] if ts.modes is not None else None,
-            )
+            hessian = self.engine.hessian(record.molecule)
+            gradient = None if record.index == 0 else record.gradient
+            ts_mode = ts.modes[0] if ts.modes is not None else None
+            if coords == "redundant":
+                freqs, _ = curvilinear_generalized_modes(
+                    record.molecule,
+                    hessian,
+                    used,
+                    gradient,
+                    ts_mode,
+                    reference=mol0,
+                    where=f" at s = {s[i]:+.4f} bohr",
+                )
+            else:
+                freqs, _ = generalized_normal_modes(
+                    record.molecule, hessian, gradient, ts_mode
+                )
             frequencies.append(freqs)
             zpe[i] = generalized_zpe(freqs, ts.imag_threshold)
             large = freqs[freqs < -ts.imag_threshold]
@@ -431,10 +480,16 @@ class Reaction:
                 listed = ", ".join(f"{f:.1f}" for f in large)
                 imaginary.append(f"s = {s[i]:+.4f} ([{listed}] cm^-1)")
         if imaginary:
+            hint = ""
+            if coords == "cartesian":
+                hint = (
+                    "; Cartesian generalized frequencies are often spuriously "
+                    'imaginary on curved paths, use coordinates="redundant"'
+                )
             warnings.warn(
                 "MEP: imaginary generalized frequencies above the "
                 f"{ts.imag_threshold:g} cm^-1 threshold, excluded from the "
-                f"zero-point energy, at {'; '.join(imaginary)}",
+                f"zero-point energy, at {'; '.join(imaginary)}{hint}",
                 stacklevel=2,
             )
         return ReactionPath(
@@ -452,6 +507,8 @@ class Reaction:
             stop_reactant=stop_reactant,
             stop_product=stop_product,
             oriented=sign is not None,
+            coordinates=coords,
+            internals=used,
         )
 
     def _trace_stored(
@@ -651,6 +708,25 @@ def _mep_parameters(
             "method='euler' for sparse Hessians"
         )
     return lo, hi, step, every, meth
+
+
+def _coordinate_parameters(
+    coordinates: object, internals: Sequence[Sequence[object]] | None, n_atoms: int
+) -> tuple[Coordinates, tuple[Internal, ...] | None]:
+    """Validate compute_mep's coordinate arguments."""
+    if coordinates not in COORDINATES:
+        raise ValueError(
+            f"coordinates: expected 'redundant' or 'cartesian', got {coordinates!r}"
+        )
+    coords: Coordinates = coordinates
+    if internals is None:
+        return coords, None
+    if coords == "cartesian":
+        raise ValueError(
+            "internals: only used with coordinates='redundant'; drop internals= "
+            "for Cartesian frequencies"
+        )
+    return coords, validate_internals(internals, n_atoms)
 
 
 def _real(value: object, name: str) -> float:

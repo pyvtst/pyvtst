@@ -23,6 +23,7 @@ import scipy.integrate
 import scipy.linalg
 import scipy.optimize
 
+from pyvtst.core.internals import Internal
 from pyvtst.core.molecule import Molecule
 from pyvtst.core.stationary import DEFAULT_IMAG_THRESHOLD, StationaryPoint
 from pyvtst.core.units import CM1_TO_HARTREE, HARTREE_TO_KCAL_PER_MOL
@@ -30,8 +31,10 @@ from pyvtst.core.units import CM1_TO_HARTREE, HARTREE_TO_KCAL_PER_MOL
 FloatArray = npt.NDArray[np.float64]
 Method = Literal["lqa", "euler"]
 StopReason = Literal["s_limit", "minimum", "energy_rise"]
+Coordinates = Literal["redundant", "cartesian"]
 
 METHODS: tuple[Method, ...] = ("lqa", "euler")
+COORDINATES: tuple[Coordinates, ...] = ("redundant", "cartesian")
 
 # A mass-scaled gradient norm below this (hartree/bohr) means a minimum.
 GRADIENT_TOLERANCE = 1e-5
@@ -394,6 +397,11 @@ class ReactionPath:
         stop_product: Why the product side (s > 0) stopped.
         oriented: Whether s < 0 is known to be the reactant side. When false,
             the sign of s is arbitrary.
+        coordinates: The coordinates of the generalized frequencies,
+            ``"redundant"`` (curvilinear, in redundant internal coordinates)
+            or ``"cartesian"``.
+        internals: The internal coordinates used, as ``(kind, *atom
+            indices)`` tuples; empty for ``"cartesian"``.
 
     All arrays are read-only. Instances compare by value.
     """
@@ -412,8 +420,15 @@ class ReactionPath:
     stop_reactant: StopReason
     stop_product: StopReason
     oriented: bool
+    coordinates: Coordinates = "cartesian"
+    internals: tuple[Internal, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.coordinates not in COORDINATES:
+            raise ValueError(
+                "coordinates: expected 'redundant' or 'cartesian', got "
+                f"{self.coordinates!r}"
+            )
         n = len(self.molecules)
         s = _frozen(self.s)
         energies = _frozen(self.energies)
@@ -437,6 +452,7 @@ class ReactionPath:
         object.__setattr__(self, "gradients", gradients)
         object.__setattr__(self, "frequencies", freqs)
         object.__setattr__(self, "zpe", zpe)
+        object.__setattr__(self, "internals", tuple(map(tuple, self.internals)))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ReactionPath):
@@ -460,6 +476,8 @@ class ReactionPath:
             and self.stop_reactant == other.stop_reactant
             and self.stop_product == other.stop_product
             and self.oriented == other.oriented
+            and self.coordinates == other.coordinates
+            and self.internals == other.internals
         )
 
     __hash__ = None  # type: ignore[assignment]

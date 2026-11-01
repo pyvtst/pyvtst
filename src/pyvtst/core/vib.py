@@ -10,12 +10,18 @@ never depends on a numerical threshold.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
 import scipy.linalg
 
 from pyvtst.core.molecule import Molecule
 from pyvtst.core.units import AMU_TO_ME, HARTREE_TO_CM1
+
+if TYPE_CHECKING:
+    from pyvtst.core.internals import Internal
 
 FloatArray = npt.NDArray[np.float64]
 
@@ -171,6 +177,72 @@ def generalized_normal_modes(
     return _modes_in(internal_basis(mol, extra=d), f)
 
 
+def curvilinear_generalized_modes(
+    mol: Molecule,
+    hessian: npt.ArrayLike,
+    internals: Sequence[Internal],
+    gradient: npt.ArrayLike | None = None,
+    direction: npt.ArrayLike | None = None,
+    *,
+    reference: Molecule | None = None,
+    where: str = "",
+) -> tuple[FloatArray, FloatArray]:
+    """Return generalized frequencies and modes in redundant internal coordinates.
+
+    Away from a stationary point the Cartesian Hessian holds the gradient
+    times the curvature of the internal coordinates, Σᵢ (∂V/∂qᵢ) ∂²qᵢ/∂x²,
+    which describes straight-line motion rather than vibration and turns bends
+    on curved paths imaginary. Here that term is removed, the coordinates are
+    reduced to a non-redundant set, the path direction is projected out in the
+    metric of the Wilson G matrix and the projected G·F problem is solved
+    (C. F. Jackels, Z. Gu and D. G. Truhlar, J. Chem. Phys. 102, 3188 (1995)).
+    At a stationary point the result equals :func:`generalized_normal_modes`
+    for any set that spans the internal space. Away from one it depends on the
+    set, redundant coordinates included, since the set decides which motions
+    count as curvilinear.
+
+    Args:
+        mol: The geometry.
+        hessian: Cartesian Hessian in hartree/bohr², shape (3N, 3N).
+        internals: Internal coordinates, see :mod:`pyvtst.core.internals`.
+        gradient: Cartesian gradient in hartree/bohr, shape (N, 3) or (3N,).
+        direction: Path direction in mass-weighted Cartesian coordinates,
+            shape (3N,), used when the gradient is absent or its norm is below
+            1e-8 hartree/bohr.
+        reference: Geometry that fixes the linear-bend axes; ``mol`` if
+            ``None``.
+        where: Appended to the coverage error, e.g. ``" at s = 0.1000 bohr"``.
+
+    Returns:
+        ``(frequencies, modes)`` as in :func:`generalized_normal_modes`:
+        3N-7 frequencies, or 3N-6 for a linear geometry, whatever the number
+        of redundant coordinates, and the modes in mass-weighted Cartesian
+        coordinates.
+
+    Raises:
+        ValueError: The coordinates do not span the internal space, neither a
+            non-vanishing gradient nor a direction is given, or an array has
+            the wrong shape.
+    """
+    # internals builds on this module's rigid-body bases, so it is imported
+    # here rather than at the top.
+    from pyvtst.core.internals import b_derivatives, nonredundant  # noqa: PLC0415
+
+    f = mass_weighted_hessian(mol, hessian)
+    t, w = nonredundant(mol, internals, where, reference)
+    inv_sqrt_m = 1.0 / np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
+    g = _gradient(mol, gradient)
+    if g is not None and np.linalg.norm(g) >= 1e-8:
+        g_y = t @ (inv_sqrt_m * g)
+        curvature = np.tensordot(w @ g_y, b_derivatives(mol, internals, reference), 1)
+        f = f - inv_sqrt_m[:, None] * curvature * inv_sqrt_m[None, :]
+    d = t @ _path_direction(mol, gradient, direction)
+    # The trailing columns of a full QR are an orthonormal basis of the
+    # complement of d.
+    q, _ = scipy.linalg.qr(d[:, None], mode="full")
+    return _modes_in(t.T @ q[:, 1:], f)
+
+
 def _modes_in(internal: FloatArray, f: FloatArray) -> tuple[FloatArray, FloatArray]:
     """Diagonalize the mass-weighted Hessian ``f`` within the ``internal`` columns."""
     eigvals, eigvecs = scipy.linalg.eigh(internal.T @ f @ internal)
@@ -178,17 +250,24 @@ def _modes_in(internal: FloatArray, f: FloatArray) -> tuple[FloatArray, FloatArr
     return freqs, (internal @ eigvecs).T
 
 
+def _gradient(mol: Molecule, gradient: npt.ArrayLike | None) -> FloatArray | None:
+    if gradient is None:
+        return None
+    n = 3 * mol.n_atoms
+    g = np.array(gradient, dtype=np.float64).reshape(-1)
+    if g.shape != (n,):
+        raise ValueError(f"gradient: expected {n} components, got {g.size}")
+    return g
+
+
 def _path_direction(
     mol: Molecule, gradient: npt.ArrayLike | None, direction: npt.ArrayLike | None
 ) -> FloatArray:
     n = 3 * mol.n_atoms
-    if gradient is not None:
-        g = np.array(gradient, dtype=np.float64).reshape(-1)
-        if g.shape != (n,):
-            raise ValueError(f"gradient: expected {n} components, got {g.size}")
-        if np.linalg.norm(g) >= 1e-8:
-            g_mw = g / np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
-            return np.asarray(g_mw / np.linalg.norm(g_mw), dtype=np.float64)
+    g = _gradient(mol, gradient)
+    if g is not None and np.linalg.norm(g) >= 1e-8:
+        g_mw = g / np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
+        return np.asarray(g_mw / np.linalg.norm(g_mw), dtype=np.float64)
     if direction is None:
         raise ValueError("a path direction is needed: the gradient vanishes")
     d = np.array(direction, dtype=np.float64).reshape(-1)

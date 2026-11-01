@@ -1,13 +1,15 @@
 """Synthetic Cartesian Hessians with known physics, for vibrational analysis tests.
 
-Each Hessian is Bᵀ K B for internal coordinates with Wilson B rows that are
+Most Hessians are Bᵀ K B for internal coordinates with Wilson B rows that are
 invariant under overall translation and rotation, so the external modes are
-exact zero modes, as at a true stationary point.
+exact zero modes, as at a true stationary point. :func:`quadratic_triatomic`
+gives a non-stationary point instead.
 """
 
 import numpy as np
 
 from pyvtst import Molecule
+from pyvtst.core.internals import b_derivatives, values, wilson_b
 from pyvtst.core.units import ANGSTROM_TO_BOHR
 
 WATER_COORDS = np.array(
@@ -78,3 +80,24 @@ def random_rotation(seed):
 
 
 H2_BOND = 0.7414 * ANGSTROM_TO_BOHR
+
+
+TRIATOMIC_INTERNALS = (("bond", 0, 1), ("bond", 0, 2), ("angle", 1, 0, 2))
+
+
+def quadratic_triatomic(mol, force_constants, rest):
+    """Gradient and Hessian of V = ½ (q - q₀)ᵀ K (q - q₀) in two bonds and the angle.
+
+    The bonds are atom 0 to atoms 1 and 2 and the angle is 1-0-2. By the
+    chain rule, g = Bᵀ K Δq and H = Bᵀ K B + Σᵢ (K Δq)ᵢ Cᵢ, with C the
+    second derivatives of the coordinates.
+
+    Returns:
+        ``(gradient, hessian)`` in hartree/bohr, shape (3N,), and
+        hartree/bohr², shape (3N, 3N).
+    """
+    k = np.asarray(force_constants)
+    g_q = k @ (values(mol, TRIATOMIC_INTERNALS) - np.asarray(rest))
+    b = wilson_b(mol, TRIATOMIC_INTERNALS)
+    c = b_derivatives(mol, TRIATOMIC_INTERNALS)
+    return b.T @ g_q, b.T @ k @ b + np.tensordot(g_q, c, 1)
