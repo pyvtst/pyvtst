@@ -712,6 +712,31 @@ def test_different_step_size_is_a_different_path():
     assert len(prefixes) == 2
 
 
+def test_another_engine_does_not_reuse_optimizations_or_path_points():
+    # Same level of theory, different engine class.
+    store = MemoryStore()
+    path = mep_reaction(LEPSEngine(), store).compute_mep(-0.1, 0.1)
+    engine = CountingEngine()
+    rxn = mep_reaction(engine, store)
+    other = rxn.compute_mep(-0.1, 0.1)
+    assert [kind for kind, _ in rxn.optimizer.calls] == ["minimize", "saddle"]
+    # Every point but the transition state is traced again.
+    assert engine.calls["gradient"] == len(other)
+    assert len({k.rsplit("/", 2)[0] for k in store.keys("mep/")}) == 2
+    assert other == path
+
+
+def test_pinned_engine_id_shares_the_cache():
+    store = MemoryStore()
+    mep_reaction(LEPSEngine(), store).compute_mep(-0.1, 0.1)
+    engine = CountingEngine()
+    pinned = CachedEngine(engine, store, engine_id="tests.fakes.leps.LEPSEngine")
+    rxn = mep_reaction(pinned, store)
+    rxn.compute_mep(-0.1, 0.1)
+    assert sum(engine.calls.values()) == 0
+    assert rxn.optimizer.calls == []
+
+
 class RecordingStore(MemoryStore):
     """A memory store that records the keys written."""
 

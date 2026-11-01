@@ -191,11 +191,15 @@ class Reaction:
         self.ts = ts
         self.products = prods
         self.store = open_store(store)
-        self.engine: Engine = (
+        cached = (
             engine
             if isinstance(engine, CachedEngine)
             else CachedEngine(engine, self.store)
         )
+        self.engine: Engine = cached
+        # Optimizations and path points hold engine results, so like the
+        # engine's own records they are keyed by its identity.
+        self._engine_id = cached.engine_id
         self._optimizer = optimizer
         self._points: StationaryPoints | None = None
 
@@ -213,7 +217,8 @@ class Reaction:
         transition-state guess to a first-order saddle point, then Hessians
         are computed at the optimized geometries. Single atoms get only an
         energy. Optimized geometries are kept in the store under a key of the
-        input geometry, the level of theory and the optimizer settings.
+        input geometry, the level of theory, the engine and the optimizer
+        settings.
 
         Raises:
             StationaryPointError: A reactant or product has an imaginary
@@ -384,10 +389,18 @@ class Reaction:
         level = self.engine.level
         if meth == "euler":
             prefix = cache_key(
-                "mep", mol0, level, method=meth, ds=step, hessian_every=every
+                "mep",
+                mol0,
+                level,
+                method=meth,
+                ds=step,
+                hessian_every=every,
+                engine=self._engine_id,
             )
         else:
-            prefix = cache_key("mep", mol0, level, method=meth, ds=step)
+            prefix = cache_key(
+                "mep", mol0, level, method=meth, ds=step, engine=self._engine_id
+            )
         scale = mass_scale(mol0)
         x0 = to_mass_scaled(mol0, mol0.coords)
         start = MEPPoint(0, x0, ts.energy, np.zeros_like(x0))
@@ -592,6 +605,7 @@ class Reaction:
             guess,
             self.engine.level,
             optimizer=optimizer.key(),
+            engine=self._engine_id,
         )
         record = self.store.get(key)
         if record is not None:

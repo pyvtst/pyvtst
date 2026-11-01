@@ -170,6 +170,12 @@ engine.hessian(h2)  # computed once, then read from results.h5
 A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
 its own store, and the `Reaction`'s optimized geometries go to `store=`.
 
+Results are keyed by the level of theory and by the engine, so two programs
+that name the same method and basis never share optimizations, path points or
+energies. The engine is identified by its class name; pass
+`CachedEngine(engine, store, engine_id=...)` to keep a cache across a class
+rename.
+
 ### Reaction path
 
 `compute_mep()` traces the minimum-energy path (MEP) through the transition
@@ -204,7 +210,7 @@ only at points with a Hessian.
 Every point goes to the `Reaction`'s store as soon as it is computed. An
 interrupted `compute_mep()` resumes from the last stored point, wider limits
 compute only the new points, and a repeated call is free. A different
-`method`, `ds` or `hessian_every` starts a new path.
+`method`, `ds`, `hessian_every` or engine starts a new path.
 
 Which side is s < 0 is decided from geometry, so list the transition state's
 atoms in the same order as the reactants' atoms concatenated (and the
