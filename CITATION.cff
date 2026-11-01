@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use pyvtst in your research, please cite it as below."
+type: software
+title: "pyvtst"
+authors:
+  - given-names: Emilian
+    family-names: Roșca
+license: BSD-3-Clause
+repository-code: "https://github.com/pyvtst/pyvtst"
+url: "https://pypi.org/project/pyvtst/"
+keywords:
+  - chemistry
+  - kinetics
+  - transition state theory
+  - VTST
