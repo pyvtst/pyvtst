@@ -4,23 +4,31 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from pyvtst import Molecule, RateResult, Reaction
-from pyvtst.core.rates import zpe_energy
+from pyvtst import Molecule, RateResult, Reaction, ReactionPath
+from pyvtst.core.mep import generalized_zpe
+from pyvtst.core.rates import tst_rate, zpe_energy
 from pyvtst.core.stationary import StationaryPointError
 from pyvtst.core.tunneling import eckart
+from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
+from pyvtst.core.vib import generalized_normal_modes
 from pyvtst.engines import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
 from pyvtst.ports import ConvergenceError, OptimizationResult
 from pyvtst.stores import MemoryStore
-from tests.fakes.leps import R0, LEPSEngine
+from tests.fakes.leps import R0, LEPSEngine, collinear_h3, saddle_distance
 
 
 class CountingEngine:
-    """The LEPS engine, counting calls per method."""
+    """The LEPS engine, counting calls per method.
 
-    def __init__(self):
+    With ``fail_after``, gradient calls beyond that many raise, like a crash.
+    """
+
+    def __init__(self, fail_after=None):
         self.inner = LEPSEngine()
         self.calls: Counter[str] = Counter()
+        self.gradient_coords: list[np.ndarray] = []
+        self.fail_after = fail_after
 
     @property
     def level(self):
@@ -31,7 +39,10 @@ class CountingEngine:
         return self.inner.energy(mol)
 
     def gradient(self, mol):
+        if self.fail_after is not None and self.calls["gradient"] >= self.fail_after:
+            raise RuntimeError("engine crashed")
         self.calls["gradient"] += 1
+        self.gradient_coords.append(np.array(mol.coords))
         return self.inner.gradient(mol)
 
     def hessian(self, mol):
@@ -483,3 +494,327 @@ def test_persistent_store_makes_reruns_free(
     assert sum(engine2.calls.values()) == 0
     assert opt2.calls == []
     np.testing.assert_array_equal(second.k, first.k)
+
+
+# Minimum-energy path
+
+D_MASS = 2.014101778  # amu
+
+
+def exact_optimizer():
+    """Returns the exact LEPS saddle point and H2 minimum without optimizing."""
+    r = saddle_distance()
+    return CountingOptimizer(
+        FixedOptimizer(
+            saddle=[[-r, 0.0, 0.0], [0.0, 0.0, 0.0], [r, 0.0, 0.0]],
+            minimum=[[0.0, 0.0, 0.0], [R0, 0.0, 0.0]],
+        )
+    )
+
+
+def mep_reaction(engine, store=None, masses=(None, None, None)):
+    """H2 + H on LEPS with exact stationary points; masses per role."""
+    h2_masses, h_masses, ts_masses = masses
+    h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]], masses=h2_masses)
+    h = Molecule(["H"], [[0.0, 0.0, 0.0]], mult=2, masses=h_masses)
+    ts = collinear_h3(1.6, 1.9, masses=ts_masses)
+    return Reaction([h2, h], ts, engine, optimizer=exact_optimizer(), store=store)
+
+
+@pytest.fixture(scope="module")
+def lqa_path():
+    return mep_reaction(LEPSEngine()).compute_mep()
+
+
+def mass_scaled(path):
+    return np.array(
+        [np.repeat(np.sqrt(m.masses), 3) * m.coords.ravel() for m in path.molecules]
+    )
+
+
+def test_auto_run_prerequisites_for_the_path(rxn, geometric_optimizer):
+    path = rxn.compute_mep()
+    assert geometric_optimizer.calls
+    assert isinstance(path, ReactionPath)
+    assert path.s[0] == pytest.approx(-0.5)
+    assert path.s[-1] == pytest.approx(0.5)
+
+
+def test_requested_limits():
+    path = mep_reaction(LEPSEngine()).compute_mep(s_min=-0.4, s_max=0.4)
+    assert path.s[0] == pytest.approx(-0.4, abs=1e-12)
+    assert path.s[-1] == pytest.approx(0.4, abs=1e-12)
+    assert (path.stop_reactant, path.stop_product) == ("s_limit", "s_limit")
+    assert len(path) == 81
+
+
+def test_first_points_straddle_the_saddle(lqa_path):
+    i = lqa_path.ts_index
+    assert lqa_path.energies[i - 1] < lqa_path.energies[i]
+    assert lqa_path.energies[i + 1] < lqa_path.energies[i]
+
+
+def test_energy_decreases_away_from_the_saddle(lqa_path):
+    i = lqa_path.ts_index
+    assert np.all(np.diff(lqa_path.energies[: i + 1]) > 0)
+    assert np.all(np.diff(lqa_path.energies[i:]) < 0)
+
+
+def test_points_are_evenly_spaced_in_arc_length(lqa_path):
+    np.testing.assert_allclose(
+        lqa_path.s / 0.01, np.round(lqa_path.s / 0.01), rtol=0, atol=1e-10
+    )
+    steps = np.linalg.norm(np.diff(mass_scaled(lqa_path), axis=0), axis=1)
+    np.testing.assert_allclose(steps, 0.01, rtol=0, atol=1e-4)
+
+
+def test_mode_count_along_a_collinear_path(lqa_path):
+    assert all(f is not None and f.shape == (3,) for f in lqa_path.frequencies)
+    assert np.all(np.isfinite(lqa_path.zpe))
+
+
+def test_saddle_point_entry(lqa_path):
+    rxn = mep_reaction(LEPSEngine())
+    points = rxn.optimize()
+    barrier = tst_rate(points.reactants, points.ts, [300.0]).barrier_zpe
+    assert lqa_path.s[lqa_path.ts_index] == 0.0
+    assert lqa_path.v_ag[lqa_path.ts_index] == pytest.approx(barrier, abs=1e-10)
+    assert lqa_path.v_mep[lqa_path.ts_index] == pytest.approx(
+        points.ts.energy - sum(r.energy for r in points.reactants), abs=1e-14
+    )
+
+
+def test_path_metadata(lqa_path):
+    assert lqa_path.method == "lqa"
+    assert lqa_path.ds == 0.01
+    assert lqa_path.oriented
+    assert lqa_path.gradients.shape == (101, 3, 3)
+    assert lqa_path.molecules[lqa_path.ts_index].coords[2, 0] == pytest.approx(
+        saddle_distance()
+    )
+
+
+# Argument validation
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"s_max": -0.2},
+        {"s_min": 0.1},
+        {"s_min": float("nan")},
+        {"s_max": "0.5"},
+        {"ds": 0.0},
+        {"ds": 0.2},
+        {"method": "euler", "hessian_every": 0},
+        {"method": "euler", "hessian_every": 2.5},
+        {"method": "euler", "hessian_every": True},
+    ],
+)
+def test_invalid_arguments_fail_fast(kwargs):
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    with pytest.raises(ValueError, match=list(kwargs)[-1]):
+        rxn.compute_mep(**kwargs)
+    assert sum(engine.calls.values()) == 0
+    assert rxn.optimizer.calls == []
+
+
+def test_unknown_method():
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    with pytest.raises(ValueError, match="'lqa' or 'euler'"):
+        rxn.compute_mep(method="rk4")
+    assert sum(engine.calls.values()) == 0
+    assert rxn.optimizer.calls == []
+
+
+def test_lqa_with_sparse_hessians():
+    engine = CountingEngine()
+    with pytest.raises(ValueError, match="LQA needs a Hessian at every point"):
+        mep_reaction(engine).compute_mep(hessian_every=5)
+    assert sum(engine.calls.values()) == 0
+
+
+def test_euler_defaults():
+    path = mep_reaction(LEPSEngine()).compute_mep(-0.03, 0.03, method="euler")
+    assert path.ds == 0.001
+    np.testing.assert_array_equal(
+        np.flatnonzero(path.has_frequencies), [0, 10, 20, 30, 40, 50, 60]
+    )
+
+
+# Caching and resume
+
+
+def test_repeated_call_is_free():
+    store = MemoryStore()
+    first = mep_reaction(CountingEngine(), store).compute_mep()
+    engine = CountingEngine()
+    second = mep_reaction(engine, store).compute_mep()
+    assert sum(engine.calls.values()) == 0
+    assert second == first
+
+
+@pytest.fixture(params=["memory", "hdf5"])
+def store_factory(request, tmp_path):
+    if request.param == "memory":
+        store = MemoryStore()
+        return lambda: store
+    pytest.importorskip("h5py")
+    return lambda: str(tmp_path / "mep.h5")
+
+
+def test_resume_after_interruption(store_factory):
+    crashing = CountingEngine(fail_after=15)
+    with pytest.raises(RuntimeError, match="crashed"):
+        mep_reaction(crashing, store_factory()).compute_mep()
+    stored = crashing.gradient_coords
+
+    engine = CountingEngine()
+    resumed = mep_reaction(engine, store_factory()).compute_mep()
+    for coords in engine.gradient_coords:
+        assert not any(np.allclose(coords, c, rtol=0, atol=1e-9) for c in stored)
+    # Every point but the 15 stored ones, plus the transition state.
+    assert engine.calls["gradient"] == len(resumed) - 1 - 15 + 1
+    assert resumed == mep_reaction(LEPSEngine()).compute_mep()
+
+
+def test_extending_the_range():
+    store = MemoryStore()
+    mep_reaction(CountingEngine(), store).compute_mep(s_min=-0.2, s_max=0.2)
+    engine = CountingEngine()
+    wide = mep_reaction(engine, store).compute_mep(s_min=-0.4, s_max=0.4)
+    new = np.sum(np.abs(wide.s) > 0.2 + 1e-9)
+    assert engine.calls["gradient"] == new == 40
+    assert engine.calls["hessian"] == new
+    assert wide == mep_reaction(LEPSEngine()).compute_mep(s_min=-0.4, s_max=0.4)
+
+
+def test_shrinking_the_range_is_free():
+    store = MemoryStore()
+    full = mep_reaction(CountingEngine(), store).compute_mep()
+    engine = CountingEngine()
+    short = mep_reaction(engine, store).compute_mep(s_min=-0.2, s_max=0.1)
+    assert sum(engine.calls.values()) == 0
+    keep = (full.s >= -0.2 - 1e-9) & (full.s <= 0.1 + 1e-9)
+    np.testing.assert_array_equal(short.energies, full.energies[keep])
+
+
+def test_different_step_size_is_a_different_path():
+    store = MemoryStore()
+    mep_reaction(CountingEngine(), store).compute_mep(ds=0.01)
+    engine = CountingEngine()
+    coarse = mep_reaction(engine, store).compute_mep(ds=0.02)
+    assert len(coarse) == 51
+    assert engine.calls["gradient"] == 50
+    prefixes = {k.rsplit("/", 2)[0] for k in store.keys("mep/")}
+    assert len(prefixes) == 2
+
+
+class RecordingStore(MemoryStore):
+    """A memory store that records the keys written."""
+
+    def __init__(self):
+        super().__init__()
+        self.written: list[str] = []
+
+    def put(self, key, record):
+        self.written.append(key)
+        super().put(key, record)
+
+
+def test_damaged_point_record_is_recomputed_with_its_successors():
+    store = RecordingStore()
+    first = mep_reaction(CountingEngine(), store).compute_mep()
+    minus = sorted(k for k in store.keys("mep/") if "/minus/" in k)
+    assert len(minus) == 50
+    store.put(minus[9], {"coords": np.zeros((2, 3)), "energy": 0.0})
+    store.written.clear()
+
+    again = mep_reaction(CountingEngine(), store).compute_mep()
+    assert [k for k in store.written if k.startswith("mep/")] == minus[9:]
+    repaired = store.get(minus[9])
+    assert repaired is not None
+    assert np.shape(repaired["coords"]) == (3, 3)
+    assert again == first
+
+
+# Methods, masses and orientation
+
+
+def test_methods_agree():
+    rxn = mep_reaction(LEPSEngine())
+    lqa = rxn.compute_mep(-0.3, 0.3, ds=0.01)
+    euler = rxn.compute_mep(-0.3, 0.3, ds=0.0005, method="euler")
+    for s in (-0.3, 0.3):
+        a = lqa.v_mep[np.argmin(np.abs(lqa.s - s))]
+        b = euler.v_mep[np.argmin(np.abs(euler.s - s))]
+        assert abs(a - b) * HARTREE_TO_KCAL_PER_MOL < 0.05
+
+
+def test_euler_hessian_spacing():
+    engine = CountingEngine()
+    path = mep_reaction(engine).compute_mep(-0.1, 0.1, method="euler", hessian_every=10)
+    with_freqs = np.round(path.s[path.has_frequencies] / path.ds).astype(int)
+    np.testing.assert_array_equal(with_freqs, np.arange(-100, 101, 10))
+    assert all(
+        f is None
+        for f, h in zip(path.frequencies, path.has_frequencies, strict=True)
+        if not h
+    )
+    assert np.all(np.isnan(path.zpe[~path.has_frequencies]))
+    # The two stationary-point Hessians plus one per tenth point.
+    assert engine.calls["hessian"] == 2 + 20
+
+
+def test_isotope_substitution_changes_the_path():
+    d = [D_MASS] * 3
+    h_path = mep_reaction(LEPSEngine()).compute_mep(-0.1, 0.1)
+    d_path = mep_reaction(LEPSEngine(), masses=(d[:2], d[:1], d)).compute_mep(-0.1, 0.1)
+    assert d_path.energies[-1] > h_path.energies[-1]
+
+
+def test_asymmetric_isotopic_reaction():
+    masses = ([D_MASS, D_MASS], None, [D_MASS, D_MASS, 1.00782503223])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        path = mep_reaction(LEPSEngine(), masses=masses).compute_mep(-0.2, 0.2)
+    assert path.oriented
+
+    def dd(mol):
+        return abs(np.linalg.norm(mol.coords[0] - mol.coords[1]) - R0)
+
+    assert dd(path.molecules[0]) < dd(path.molecules[-1])
+
+
+def test_atom_order_mismatch():
+    masses = ([D_MASS, D_MASS], None, [1.00782503223, D_MASS, D_MASS])
+    rxn = mep_reaction(LEPSEngine(), masses=masses)
+    with pytest.warns(UserWarning, match="sign of s is arbitrary"):
+        path = rxn.compute_mep(-0.1, 0.1)
+    assert not path.oriented
+    assert len(path) == 21
+
+
+def test_side_stopping_early_warns():
+    rxn = mep_reaction(LEPSEngine())
+    with pytest.warns(UserWarning, match=r"product side stopped at s = \+"):
+        path = rxn.compute_mep(-0.2, 30.0, ds=0.1, method="euler", hessian_every=1000)
+    assert path.stop_product in ("minimum", "energy_rise")
+    assert path.stop_reactant == "s_limit"
+    assert path.s[-1] < 30.0
+
+
+def test_large_imaginary_generalized_frequency_warns(monkeypatch):
+    def with_imaginary(mol, hessian, gradient=None, direction=None):
+        freqs, modes = generalized_normal_modes(mol, hessian, gradient, direction)
+        if gradient is not None:
+            freqs = np.array([-200.0, *freqs[1:]])
+        return freqs, modes
+
+    monkeypatch.setattr("pyvtst.reaction.generalized_normal_modes", with_imaginary)
+    with pytest.warns(UserWarning, match=r"s = -0\.0100 \(\[-200\.0\] cm\^-1\)"):
+        path = mep_reaction(LEPSEngine()).compute_mep(-0.01, 0.01)
+    assert path.frequencies[0][0] == -200.0
+    assert path.zpe[0] == pytest.approx(generalized_zpe(path.frequencies[0][1:]))

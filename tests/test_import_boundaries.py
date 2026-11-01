@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-FORBIDDEN = ("ase", "rdkit", "pyscf", "geometric", "h5py")
+FORBIDDEN = ("ase", "rdkit", "pyscf", "geometric", "h5py", "matplotlib")
 
 # pyvtst.core (and the top-level package) never import a third-party tool.
 CORE_SCRIPT = f"""
@@ -16,10 +16,12 @@ for info in pkgutil.walk_packages(pyvtst.core.__path__, "pyvtst.core."):
 print(",".join(m for m in {FORBIDDEN!r} if m in sys.modules))
 """
 
-# Ports and adapter packages import PySCF, geomeTRIC and h5py only when an
-# engine, optimizer or HDF5 store is built.
+# Ports and adapter packages import PySCF, geomeTRIC, h5py and matplotlib only
+# when an engine, optimizer or HDF5 store is built or a plot is drawn.
 ADAPTER_SCRIPT = f"""
 import importlib, pkgutil, sys
+import pyvtst, pyvtst.plot
+pyvtst.plot_path, pyvtst.ReactionPath
 for name in ("pyvtst.ports", "pyvtst.engines", "pyvtst.optimizers", "pyvtst.stores"):
     pkg = importlib.import_module(name)
     for info in pkgutil.walk_packages(pkg.__path__, name + "."):

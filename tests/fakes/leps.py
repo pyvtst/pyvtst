@@ -23,6 +23,7 @@ import itertools
 
 import numpy as np
 import numpy.typing as npt
+import scipy.optimize
 
 from pyvtst import Molecule
 from pyvtst.core.finite_difference import fd_hessian
@@ -120,3 +121,20 @@ class LEPSEngine:
             grad[p1] += g * u
             grad[p2] -= g * u
         return float(energy), grad
+
+
+def collinear_h3(r1: float, r2: float, masses: npt.ArrayLike | None = None) -> Molecule:
+    """Collinear H-H-H along x with distances r1 (atoms 0-1) and r2 (1-2), bohr."""
+    coords = [[-r1, 0.0, 0.0], [0.0, 0.0, 0.0], [r2, 0.0, 0.0]]
+    return Molecule(["H", "H", "H"], coords, mult=2, masses=masses, name="H3")
+
+
+def saddle_distance() -> float:
+    """H-H distance (bohr) of the symmetric collinear saddle point."""
+    engine = LEPSEngine()
+    # Along the symmetric stretch the saddle is a minimum: dE/dr2 changes sign.
+    return float(
+        scipy.optimize.brentq(
+            lambda r: engine.gradient(collinear_h3(r, r))[2, 0], 1.5, 2.0, xtol=1e-14
+        )
+    )

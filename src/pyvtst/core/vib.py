@@ -119,15 +119,82 @@ def normal_modes(
     n = 3 * mol.n_atoms
     if mol.n_atoms == 1:
         return np.empty(0), np.empty((0, n))
-    external = _external_basis(mol)
+    return _modes_in(internal_basis(mol), f)
+
+
+def internal_basis(mol: Molecule, extra: npt.ArrayLike | None = None) -> FloatArray:
+    """Return an orthonormal basis of the internal space, as columns.
+
+    The internal space is the complement, in mass-weighted Cartesian
+    coordinates, of the overall translations, the rotations about the center
+    of mass and any ``extra`` directions. It has exactly 3N-6 dimensions (3N-5
+    for a linear molecule) minus the number of independent ``extra`` vectors.
+    """
+    external = _external_basis(mol, extra)
     # The trailing columns of a full QR are an orthonormal basis of the
     # complement of the external space: exactly the internal space.
     q, _ = scipy.linalg.qr(external, mode="full")
-    internal = q[:, external.shape[1] :]
+    return np.asarray(q[:, external.shape[1] :], dtype=np.float64)
+
+
+def generalized_normal_modes(
+    mol: Molecule,
+    hessian: npt.ArrayLike,
+    gradient: npt.ArrayLike | None = None,
+    direction: npt.ArrayLike | None = None,
+) -> tuple[FloatArray, FloatArray]:
+    """Return generalized frequencies and modes at a point on a reaction path.
+
+    Overall translations, rotations and the reaction-path direction are
+    projected out of the mass-weighted Hessian. The path direction is the
+    mass-weighted gradient, or ``direction`` when no gradient is given or its
+    norm is below 1e-8 hartree/bohr (at the transition state, where it is the
+    transition vector).
+
+    Args:
+        mol: The geometry.
+        hessian: Cartesian Hessian in hartree/bohr², shape (3N, 3N).
+        gradient: Cartesian gradient in hartree/bohr, shape (N, 3) or (3N,).
+        direction: Path direction in mass-weighted Cartesian coordinates,
+            shape (3N,), used when the gradient is absent or vanishes.
+
+    Returns:
+        ``(frequencies, modes)`` as in :func:`normal_modes`, with one mode
+        fewer: 3N-7, or 3N-6 for a linear geometry.
+
+    Raises:
+        ValueError: Neither a non-vanishing gradient nor a direction is given,
+            or an array has the wrong shape.
+    """
+    f = mass_weighted_hessian(mol, hessian)
+    d = _path_direction(mol, gradient, direction)
+    return _modes_in(internal_basis(mol, extra=d), f)
+
+
+def _modes_in(internal: FloatArray, f: FloatArray) -> tuple[FloatArray, FloatArray]:
+    """Diagonalize the mass-weighted Hessian ``f`` within the ``internal`` columns."""
     eigvals, eigvecs = scipy.linalg.eigh(internal.T @ f @ internal)
     freqs = np.sign(eigvals) * np.sqrt(np.abs(eigvals)) * HARTREE_TO_CM1
-    modes = (internal @ eigvecs).T
-    return freqs, modes
+    return freqs, (internal @ eigvecs).T
+
+
+def _path_direction(
+    mol: Molecule, gradient: npt.ArrayLike | None, direction: npt.ArrayLike | None
+) -> FloatArray:
+    n = 3 * mol.n_atoms
+    if gradient is not None:
+        g = np.array(gradient, dtype=np.float64).reshape(-1)
+        if g.shape != (n,):
+            raise ValueError(f"gradient: expected {n} components, got {g.size}")
+        if np.linalg.norm(g) >= 1e-8:
+            g_mw = g / np.sqrt(np.repeat(mol.masses * AMU_TO_ME, 3))
+            return np.asarray(g_mw / np.linalg.norm(g_mw), dtype=np.float64)
+    if direction is None:
+        raise ValueError("a path direction is needed: the gradient vanishes")
+    d = np.array(direction, dtype=np.float64).reshape(-1)
+    if d.shape != (n,):
+        raise ValueError(f"direction: expected {n} components, got {d.size}")
+    return np.asarray(d / np.linalg.norm(d), dtype=np.float64)
 
 
 def _external_basis(mol: Molecule, extra: npt.ArrayLike | None = None) -> FloatArray:

@@ -6,18 +6,35 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 from pyvtst import units
+from pyvtst.core.mep import ReactionPath
 from pyvtst.core.molecule import Molecule
 
 if TYPE_CHECKING:
+    from pyvtst.plot import plot_path, plot_paths
     from pyvtst.reaction import RateResult, Reaction
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["Molecule", "RateResult", "Reaction", "__version__", "units"]
+__all__ = [
+    "Molecule",
+    "RateResult",
+    "Reaction",
+    "ReactionPath",
+    "__version__",
+    "plot_path",
+    "plot_paths",
+    "units",
+]
 
-# Reaction pulls in the port and adapter packages, so it is loaded on first
-# access; importing pyvtst (or pyvtst.core) alone stays light.
-_LAZY = {"RateResult": "pyvtst.reaction", "Reaction": "pyvtst.reaction"}
+# Reaction pulls in the port and adapter packages, and the plot functions
+# matplotlib when called, so they are loaded on first access; importing pyvtst
+# (or pyvtst.core) alone stays light.
+_LAZY = {
+    "RateResult": "pyvtst.reaction",
+    "Reaction": "pyvtst.reaction",
+    "plot_path": "pyvtst.plot",
+    "plot_paths": "pyvtst.plot",
+}
 
 
 def __getattr__(name: str) -> Any:

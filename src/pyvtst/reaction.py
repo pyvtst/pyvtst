@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
+import numbers
 import os
 import warnings
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -14,6 +16,20 @@ import numpy.typing as npt
 
 from pyvtst.core.elements import formula
 from pyvtst.core.keys import cache_key
+from pyvtst.core.mep import (
+    METHODS,
+    MEPPoint,
+    Method,
+    ReactionPath,
+    StopReason,
+    from_mass_scaled,
+    generalized_zpe,
+    mass_scale,
+    orient,
+    to_mass_scaled,
+    trace_branch,
+    transition_vector,
+)
 from pyvtst.core.molecule import Molecule
 from pyvtst.core.partition import temperatures
 from pyvtst.core.rates import tst_rate, zpe_energy
@@ -24,6 +40,7 @@ from pyvtst.core.stationary import (
 )
 from pyvtst.core.tunneling import eckart, wigner
 from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
+from pyvtst.core.vib import generalized_normal_modes, internal_basis
 from pyvtst.engines.cached import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
 from pyvtst.ports.engine import Engine
@@ -37,6 +54,14 @@ FloatArray = npt.NDArray[np.float64]
 THEORIES = ("tst",)
 TUNNELING = (None, "wigner", "eckart")
 _LATER = "is not implemented yet; it is planned for a later pyvtst release"
+
+DEFAULT_DS: dict[Method, float] = {"lqa": 0.01, "euler": 0.001}  # bohr
+DEFAULT_HESSIAN_EVERY = 10
+MAX_DS = 0.1  # bohr
+_STOP_MEANING = {
+    "minimum": "the gradient vanished (a minimum was reached)",
+    "energy_rise": "the next step would raise the energy; try a smaller ds",
+}
 
 
 @dataclass(frozen=True)
@@ -259,6 +284,234 @@ class Reaction:
             barrier_kcal=tst.barrier_zpe * HARTREE_TO_KCAL_PER_MOL,
         )
 
+    def compute_mep(
+        self,
+        s_min: float = -0.5,
+        s_max: float = 0.5,
+        ds: float | None = None,
+        method: Literal["lqa", "euler"] | str = "lqa",
+        hessian_every: int | None = None,
+    ) -> ReactionPath:
+        """Trace the minimum-energy path through the transition state.
+
+        The path is traced in mass-scaled coordinates (μ = 1 amu), so s is in
+        bohr, with s = 0 at the transition state and s < 0 on the reactant
+        side. Runs :meth:`optimize` first if needed. Every point is stored as
+        soon as it is computed: a repeated call makes no engine calls, an
+        interrupted call resumes from the last stored point, and a call with
+        wider limits computes only the points beyond the stored ones.
+
+        Args:
+            s_min: Reactant-side limit in bohr, < 0.
+            s_max: Product-side limit in bohr, > 0.
+            ds: Step size in bohr, in (0, 0.1]. Defaults to 0.01 for
+                ``"lqa"`` and 0.001 for ``"euler"``.
+            method: ``"lqa"`` (Page-McIver local quadratic approximation, a
+                Hessian at every point) or ``"euler"`` (steepest descent,
+                gradient only, a Hessian every ``hessian_every`` points).
+            hessian_every: For ``"euler"``, compute a Hessian every this many
+                points, counting from the transition state. Defaults to 10.
+
+        Orientation needs the transition state's atoms in the same order, with
+        the same elements and masses, as the reactants' atoms concatenated
+        (and the products', when given). Otherwise the path is still computed
+        but a warning says the sign of s is arbitrary. A side that stops
+        before its limit (at a minimum, or because a step would go uphill)
+        gives a warning.
+
+        Raises:
+            ValueError: An argument is invalid; nothing has been computed.
+        """
+        lo, hi, step, every, meth = _mep_parameters(
+            s_min, s_max, ds, method, hessian_every
+        )
+        points = self.optimize()
+        ts = points.ts
+        mol0 = ts.molecule
+        tv = transition_vector(ts)
+        sign = orient(
+            mol0,
+            tv,
+            [r.molecule for r in points.reactants],
+            None if points.products is None else [p.molecule for p in points.products],
+        )
+        if sign is None:
+            warnings.warn(
+                "the transition state's atoms do not match the reactants' (or "
+                "products') atoms in element, mass and order; the path is not "
+                "oriented and the sign of s is arbitrary",
+                stacklevel=2,
+            )
+        product_branch = "minus" if sign == -1 else "plus"
+        level = self.engine.level
+        if meth == "euler":
+            prefix = cache_key(
+                "mep", mol0, level, method=meth, ds=step, hessian_every=every
+            )
+        else:
+            prefix = cache_key("mep", mol0, level, method=meth, ds=step)
+        scale = mass_scale(mol0)
+        x0 = to_mass_scaled(mol0, mol0.coords)
+        start = MEPPoint(0, x0, ts.energy, np.zeros_like(x0))
+
+        def compute(index: int, x: FloatArray) -> MEPPoint:
+            mol = mol0.replace(coords=from_mass_scaled(mol0, x))
+            energy = self.engine.energy(mol)
+            gradient = self.engine.gradient(mol)
+            hessian = self.engine.hessian(mol) if index % every == 0 else None
+            raw[index] = _PointRecord(index, mol, energy, gradient)
+            return MEPPoint(
+                index,
+                to_mass_scaled(mol0, mol.coords),
+                energy,
+                gradient.reshape(-1) / scale,
+                None if hessian is None else hessian / np.outer(scale, scale),
+            )
+
+        def basis(x: FloatArray) -> FloatArray:
+            return internal_basis(mol0.replace(coords=from_mass_scaled(mol0, x)))
+
+        raw: dict[int, _PointRecord] = {}
+        branches: dict[str, tuple[list[_PointRecord], StopReason]] = {}
+        for branch, direction in (("minus", -1.0), ("plus", 1.0)):
+            limit = hi if branch == product_branch else -lo
+            branches[branch] = self._trace_stored(
+                f"{prefix}/{branch}",
+                mol0,
+                start,
+                x0 + direction * step * tv,
+                compute,
+                raw,
+                ds=step,
+                n_max=round(limit / step),
+                method=meth,
+                basis=basis if meth == "lqa" else None,
+            )
+
+        reactant_branch = "plus" if product_branch == "minus" else "minus"
+        reactant, stop_reactant = branches[reactant_branch]
+        product, stop_product = branches[product_branch]
+        for side, records, reason, limit in (
+            ("reactant", reactant, stop_reactant, lo),
+            ("product", product, stop_product, hi),
+        ):
+            if reason != "s_limit":
+                reached = math.copysign(len(records) * step, limit)
+                warnings.warn(
+                    f"MEP: the {side} side stopped at s = {reached:+.4f} bohr, "
+                    f"before the requested {limit:+.4f}: {reason}, "
+                    f"{_STOP_MEANING[reason]}",
+                    stacklevel=2,
+                )
+
+        ts_record = _PointRecord(0, mol0, ts.energy, self.engine.gradient(mol0))
+        ordered = [*reversed(reactant), ts_record, *product]
+        s = np.array(
+            [-r.index * step for r in reversed(reactant)]
+            + [0.0]
+            + [r.index * step for r in product]
+        )
+        frequencies: list[FloatArray | None] = []
+        zpe = np.full(len(ordered), np.nan)
+        imaginary: list[str] = []
+        for i, record in enumerate(ordered):
+            if record.index % every:
+                frequencies.append(None)
+                continue
+            freqs, _ = generalized_normal_modes(
+                record.molecule,
+                self.engine.hessian(record.molecule),
+                gradient=None if record.index == 0 else record.gradient,
+                direction=ts.modes[0] if ts.modes is not None else None,
+            )
+            frequencies.append(freqs)
+            zpe[i] = generalized_zpe(freqs, ts.imag_threshold)
+            large = freqs[freqs < -ts.imag_threshold]
+            if record.index and large.size:
+                listed = ", ".join(f"{f:.1f}" for f in large)
+                imaginary.append(f"s = {s[i]:+.4f} ([{listed}] cm^-1)")
+        if imaginary:
+            warnings.warn(
+                "MEP: imaginary generalized frequencies above the "
+                f"{ts.imag_threshold:g} cm^-1 threshold, excluded from the "
+                f"zero-point energy, at {'; '.join(imaginary)}",
+                stacklevel=2,
+            )
+        return ReactionPath(
+            s=s,
+            molecules=tuple(r.molecule for r in ordered),
+            energies=np.array([r.energy for r in ordered]),
+            gradients=np.array([r.gradient for r in ordered]),
+            frequencies=tuple(frequencies),
+            zpe=zpe,
+            reference_energy=sum(r.energy for r in points.reactants),
+            reference_zpe_energy=sum(zpe_energy(r) for r in points.reactants),
+            ts_index=len(reactant),
+            method=meth,
+            ds=step,
+            stop_reactant=stop_reactant,
+            stop_product=stop_product,
+            oriented=sign is not None,
+        )
+
+    def _trace_stored(
+        self,
+        branch_key: str,
+        mol0: Molecule,
+        start: MEPPoint,
+        first_x: FloatArray,
+        compute: Callable[[int, FloatArray], MEPPoint],
+        raw: dict[int, _PointRecord],
+        *,
+        ds: float,
+        n_max: int,
+        method: Method,
+        basis: Callable[[FloatArray], FloatArray] | None,
+    ) -> tuple[list[_PointRecord], StopReason]:
+        """Trace one branch from its stored points, storing each new point.
+
+        ``compute`` puts the Cartesian record of every point it computes in
+        ``raw``, so exactly what the engine returned is stored.
+        """
+        stored = self._stored_points(branch_key, mol0, ds)
+        new: list[_PointRecord] = []
+
+        def on_point(p: MEPPoint) -> None:
+            record = raw[p.index]
+            self.store.put(f"{branch_key}/{p.index:06d}", record.as_record(ds))
+            new.append(record)
+
+        traced, reason = trace_branch(
+            start,
+            first_x,
+            compute,
+            ds=ds,
+            n_max=n_max,
+            method=method,
+            existing=[r.point(mol0) for r in stored],
+            on_point=on_point,
+            basis=basis,
+        )
+        return (stored + new)[: len(traced)], reason
+
+    def _stored_points(
+        self, branch_key: str, mol0: Molecule, ds: float
+    ) -> list[_PointRecord]:
+        """Return the valid stored points of a branch, up to the first bad one."""
+        points: list[_PointRecord] = []
+        for key in self.store.keys(f"{branch_key}/"):
+            index = len(points) + 1
+            if key != f"{branch_key}/{index:06d}":
+                break
+            record = self.store.get(key)
+            if record is None:
+                break
+            point = _PointRecord.read(record, index, mol0, ds)
+            if point is None:
+                break
+            points.append(point)
+        return points
+
     def _characterize(
         self, guess: Molecule, kind: Literal["minimum", "saddle"], role: str
     ) -> StationaryPoint:
@@ -306,6 +559,107 @@ class Reaction:
             },
         )
         return mol, energy
+
+
+@dataclass(frozen=True, eq=False)
+class _PointRecord:
+    """A stored MEP point: Cartesian geometry, energy and gradient."""
+
+    index: int
+    molecule: Molecule
+    energy: float
+    gradient: FloatArray
+
+    def point(self, mol0: Molecule) -> MEPPoint:
+        scale = mass_scale(mol0)
+        return MEPPoint(
+            self.index,
+            to_mass_scaled(mol0, self.molecule.coords),
+            self.energy,
+            self.gradient.reshape(-1) / scale,
+        )
+
+    def as_record(self, ds: float) -> dict[str, np.ndarray | float]:
+        return {
+            "coords": np.array(self.molecule.coords),
+            "energy": self.energy,
+            "gradient": np.array(self.gradient),
+            "s": self.index * ds,
+        }
+
+    @classmethod
+    def read(
+        cls, record: Mapping[str, object], index: int, mol0: Molecule, ds: float
+    ) -> _PointRecord | None:
+        coords, energy = record.get("coords"), record.get("energy")
+        gradient, s = record.get("gradient"), record.get("s")
+        shape = (mol0.n_atoms, 3)
+        if not (
+            isinstance(coords, np.ndarray)
+            and isinstance(gradient, np.ndarray)
+            and isinstance(energy, float)
+            and isinstance(s, float)
+            and coords.shape == shape
+            and gradient.shape == shape
+            and np.all(np.isfinite(gradient))
+            and math.isfinite(energy)
+            and abs(s - index * ds) <= 1e-12
+        ):
+            return None
+        try:
+            mol = mol0.replace(coords=coords)
+        except ValueError:
+            return None
+        return cls(index, mol, energy, np.array(gradient, dtype=np.float64))
+
+
+def _mep_parameters(
+    s_min: object,
+    s_max: object,
+    ds: object,
+    method: object,
+    hessian_every: object,
+) -> tuple[float, float, float, int, Method]:
+    """Validate compute_mep arguments; return them with defaults filled in."""
+    if method not in METHODS:
+        raise ValueError(f"method: expected 'lqa' or 'euler', got {method!r}")
+    meth: Method = method
+    lo = _real(s_min, "s_min")
+    if not lo < 0:
+        raise ValueError(f"s_min: must be negative, got {lo}")
+    hi = _real(s_max, "s_max")
+    if not hi > 0:
+        raise ValueError(f"s_max: must be positive, got {hi}")
+    step = DEFAULT_DS[meth] if ds is None else _real(ds, "ds")
+    if not 0 < step <= MAX_DS:
+        raise ValueError(f"ds: must be in (0, {MAX_DS}] bohr, got {step}")
+    if hessian_every is None:
+        every = DEFAULT_HESSIAN_EVERY if meth == "euler" else 1
+    elif (
+        isinstance(hessian_every, bool)
+        or not isinstance(hessian_every, numbers.Integral)
+        or hessian_every < 1
+    ):
+        raise ValueError(
+            f"hessian_every: must be a positive integer, got {hessian_every!r}"
+        )
+    else:
+        every = int(hessian_every)
+    if meth == "lqa" and every != 1:
+        raise ValueError(
+            "hessian_every: LQA needs a Hessian at every point; use "
+            "method='euler' for sparse Hessians"
+        )
+    return lo, hi, step, every, meth
+
+
+def _real(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise ValueError(f"{name}: expected a number, got {value!r}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name}: must be finite, got {number}")
+    return number
 
 
 def _from_record(

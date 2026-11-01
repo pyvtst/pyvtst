@@ -27,6 +27,7 @@ dependencies = ["numpy>=1.24", "scipy>=1.10"]
 ase = ["ase>=3.22"]
 geometric = ["geometric>=1.1"]
 hdf5 = ["h5py>=3.8"]
+plot = ["matplotlib>=3.7"]
 pyscf = ["pyscf>=2.4"]
 rdkit = ["rdkit>=2023.9"]
 
@@ -107,8 +108,9 @@ root_package = "pyvtst"
 include_external_packages = true
 exclude_type_checking_imports = true
 
-# Hexagonal layering. Adapter packages (io, engines, optimizers, stores) sit
-# above ports, which sit above core; adapters do not import each other.
+# Hexagonal layering. Adapter packages (io, engines, optimizers, stores) and
+# the plot module sit above ports, which sit above core; adapters do not
+# import each other.
 # Parenthesised layers are optional, so planned packages can be listed now.
 [[tool.importlinter.contracts]]
 name = "Hexagonal layers"
@@ -116,7 +118,7 @@ type = "layers"
 containers = ["pyvtst"]
 layers = [
     "(reaction)",
-    "io | (engines) | (optimizers) | (stores)",
+    "io | (engines) | (optimizers) | (stores) | plot",
     "(ports)",
     "core",
 ]
@@ -125,4 +127,4 @@ layers = [
 name = "Core and ports use only numpy and scipy"
 type = "forbidden"
 source_modules = ["pyvtst.core", "pyvtst.ports"]
-forbidden_modules = ["ase", "rdkit", "pyscf", "geometric", "h5py"]
+forbidden_modules = ["ase", "rdkit", "pyscf", "geometric", "h5py", "matplotlib"]
