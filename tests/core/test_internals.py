@@ -228,7 +228,8 @@ def abstraction_ts():
     # H_c continues past H_b, 15° off the O-H_b line, away from H_a.
     a_c = np.deg2rad(15.0)
     hc = hb + 1.75 * np.array([np.cos(a_c), -np.sin(a_c), 0.0])
-    return Molecule(["O", "H", "H", "H"], [[0.0, 0.0, 0.0], ha, hb, hc], mult=2)
+    coords = np.array([np.zeros(3), ha, hb, hc])
+    return Molecule(["O", "H", "H", "H"], coords, mult=2)
 
 
 def test_abstraction_transition_state():
