@@ -10,7 +10,7 @@ from pyvtst.core.mep import ReactionPath
 from pyvtst.core.molecule import Molecule
 
 if TYPE_CHECKING:
-    from pyvtst.plot import plot_path, plot_paths
+    from pyvtst.plot import plot_free_energy, plot_path, plot_paths
     from pyvtst.reaction import RateResult, Reaction
 
 __version__ = "0.1.0.dev0"
@@ -21,6 +21,7 @@ __all__ = [
     "Reaction",
     "ReactionPath",
     "__version__",
+    "plot_free_energy",
     "plot_path",
     "plot_paths",
     "units",
@@ -32,6 +33,7 @@ __all__ = [
 _LAZY = {
     "RateResult": "pyvtst.reaction",
     "Reaction": "pyvtst.reaction",
+    "plot_free_energy": "pyvtst.plot",
     "plot_path": "pyvtst.plot",
     "plot_paths": "pyvtst.plot",
 }

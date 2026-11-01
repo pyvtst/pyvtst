@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 import pyvtst  # noqa: E402
-from pyvtst.plot import UNITS, plot_path, plot_paths  # noqa: E402
+from pyvtst.plot import UNITS, plot_free_energy, plot_path, plot_paths  # noqa: E402
 from tests.fakes.leps import LEPSEngine  # noqa: E402
 from tests.test_reaction import mep_reaction  # noqa: E402
 
@@ -188,3 +188,65 @@ def test_matplotlib_missing(monkeypatch):
 def test_top_level_names():
     assert pyvtst.plot_path is plot_path
     assert pyvtst.plot_paths is plot_paths
+    assert pyvtst.plot_free_energy is plot_free_energy
+
+
+# Free-energy profiles
+
+
+@pytest.fixture(scope="module")
+def cvt_result():
+    return mep_reaction(LEPSEngine()).rates([300.0, 600.0, 1000.0], theory="cvt")
+
+
+def test_one_curve_per_temperature(cvt_result):
+    ax = plot_free_energy(cvt_result)
+    lines = ax.get_lines()
+    assert [line.get_label() for line in lines] == ["300 K", "600 K", "1000 K"]
+    cvt = cvt_result.cvt
+    for i, line in enumerate(lines):
+        np.testing.assert_array_equal(xdata(line), cvt.s)
+        np.testing.assert_allclose(ydata(line), cvt.delta_g[i] * UNITS["kcal/mol"])
+    markers = ax.collections
+    assert len(markers) == 3
+    for i, marker in enumerate(markers):
+        x, y = offsets(marker)[0]
+        assert x == pytest.approx(cvt.s_star[i])
+        assert y == pytest.approx(cvt.delta_g_star[i] * UNITS["kcal/mol"])
+        face = np.asarray(marker.get_facecolor())[0, :3]
+        assert np.allclose(face, to_rgb(lines[i]))
+    assert ax.get_xlabel() == "s (bohr)"
+    assert "kcal/mol" in ax.get_ylabel()
+
+
+def to_rgb(line):
+    return matplotlib.colors.to_rgb(line.get_color())
+
+
+def test_free_energy_from_cvt_details_and_given_axes(cvt_result):
+    _, ax = plt.subplots()
+    out = plot_free_energy(cvt_result.cvt, ax=ax, units="eV")
+    assert out is ax
+    np.testing.assert_allclose(
+        ydata(ax.get_lines()[0]), cvt_result.cvt.delta_g[0] * UNITS["eV"]
+    )
+
+
+def test_tst_result_is_rejected():
+    result = mep_reaction(LEPSEngine()).rates(300.0)
+    with pytest.raises(ValueError, match="CVT results are needed"):
+        plot_free_energy(result)
+    assert not plt.get_fignums()
+
+
+def test_free_energy_unknown_unit(cvt_result):
+    with pytest.raises(ValueError, match="units"):
+        plot_free_energy(cvt_result, units="cal")
+    assert not plt.get_fignums()
+
+
+def test_free_energy_without_matplotlib(monkeypatch, cvt_result):
+    monkeypatch.setitem(sys.modules, "matplotlib", None)
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
+    with pytest.raises(ImportError, match=r'pip install "pyvtst\[plot\]"'):
+        plot_free_energy(cvt_result)
