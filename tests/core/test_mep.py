@@ -525,3 +525,18 @@ def test_coordinates_are_part_of_equality():
 def test_invalid_coordinates_are_rejected():
     with pytest.raises(ValueError, match="coordinates"):
         make_path(coordinates="polar")
+
+
+def test_path_frequency_scale_defaults_to_one():
+    assert make_path().freq_scale == 1.0
+
+
+def test_path_frequency_scale_is_part_of_equality():
+    assert make_path() == make_path(freq_scale=1.0)
+    assert make_path() != make_path(freq_scale=0.9)
+
+
+@pytest.mark.parametrize("bad", [0.0, -0.5, float("nan")])
+def test_path_rejects_invalid_frequency_scale(bad):
+    with pytest.raises(ValueError, match="freq_scale"):
+        make_path(freq_scale=bad)

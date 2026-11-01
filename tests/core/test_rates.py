@@ -10,7 +10,14 @@ from pyvtst.core.rates import tst_rate, zpe_energy
 from pyvtst.core.stationary import StationaryPoint, StationaryPointError
 from pyvtst.core.tunneling import eckart
 from pyvtst.core.units import BOLTZMANN_AU, KCAL_PER_MOL_TO_HARTREE
-from tests.core.hessians import H2_BOND, water
+from pyvtst.core.vib import normal_modes
+from tests.core.hessians import (
+    H2_BOND,
+    linear_saddle_hessian,
+    linear_triatomic,
+    spring_hessian,
+    water,
+)
 
 T_GRID = np.linspace(200.0, 2000.0, 10)
 
@@ -267,4 +274,37 @@ def test_forward_reverse_ratio_with_eckart():
     k_r = tst_rate([c, d], ts, t, kappa=eckart(v2, v1, nu, t)).k
     np.testing.assert_allclose(
         k_f / k_r, _equilibrium_ratio([a, b], [c, d], t), rtol=1e-10
+    )
+
+
+# Frequency scale factor
+
+
+def test_scaling_matches_hand_scaled_frequencies():
+    f = 1.078
+    h2_mol = Molecule(
+        ["H", "H"], [[0.0, 0.0, 0.0], [0.0, 0.0, H2_BOND]], symmetry_number=2
+    )
+    h2_hessian = spring_hessian(h2_mol.coords, [(0, 1)], [0.37])
+    ts_mol = linear_triatomic().replace(symmetry_number=2)
+    ts_hessian = linear_saddle_hessian(ts_mol)
+    atom = h_atom()
+
+    scaled = [
+        StationaryPoint.from_hessian(h2_mol, -1.17, h2_hessian, freq_scale=f),
+        StationaryPoint.from_hessian(ts_mol, -1.16, ts_hessian, freq_scale=f),
+    ]
+    # The hand-scaled side multiplies the unscaled analysis output itself.
+    by_hand = [
+        StationaryPoint.from_frequencies(mol, e, f * normal_modes(mol, h)[0])
+        for mol, e, h in ((h2_mol, -1.17, h2_hessian), (ts_mol, -1.16, ts_hessian))
+    ]
+    t = [50.0, 300.0, 1000.0]
+    a = tst_rate([scaled[0], atom], scaled[1], t)
+    b = tst_rate([by_hand[0], atom], by_hand[1], t)
+    np.testing.assert_allclose(a.k, b.k, rtol=1e-12)
+    unscaled_ts = StationaryPoint.from_hessian(ts_mol, -1.16, ts_hessian)
+    assert unscaled_ts.imaginary_frequency is not None
+    assert scaled[1].imaginary_frequency == pytest.approx(
+        f * unscaled_ts.imaginary_frequency, rel=1e-12
     )

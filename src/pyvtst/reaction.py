@@ -44,6 +44,7 @@ from pyvtst.core.rates import CVTResult, cvt_rate, tst_rate, zpe_energy
 from pyvtst.core.stationary import (
     StationaryPoint,
     check_character,
+    check_freq_scale,
     species_label,
 )
 from pyvtst.core.tunneling import eckart, wigner
@@ -172,6 +173,12 @@ class Reaction:
             is used as given. The engine is wrapped in
             :class:`~pyvtst.engines.CachedEngine` over this store, unless it
             already is a ``CachedEngine``, which then keeps its own store.
+        freq_scale: Frequency scale factor, finite and > 0. Every harmonic
+            frequency of every species and every generalized frequency along
+            the path, imaginary ones included, is multiplied by it, so ZPEs,
+            partition functions, rate constants and tunneling all use scaled
+            frequencies. It is not part of any cache key: a reaction with
+            another factor on the same store reuses every engine result.
 
     Construction checks that reactants, transition state and products have
     the same elements and total charge, and makes no engine calls. A total
@@ -197,7 +204,9 @@ class Reaction:
         products: Sequence[Molecule] | None = None,
         optimizer: Optimizer | None = None,
         store: Store | str | os.PathLike[str] | None = None,
+        freq_scale: float = 1.0,
     ) -> None:
+        scale = check_freq_scale(freq_scale)
         reacts = (reactants,) if isinstance(reactants, Molecule) else tuple(reactants)
         if not 1 <= len(reacts) <= 2:
             raise ValueError(
@@ -225,7 +234,13 @@ class Reaction:
         # engine's own records they are keyed by its identity.
         self._engine_id = cached.engine_id
         self._optimizer = optimizer
+        self._freq_scale = scale
         self._points: StationaryPoints | None = None
+
+    @property
+    def freq_scale(self) -> float:
+        """The frequency scale factor, fixed at construction."""
+        return self._freq_scale
 
     @property
     def optimizer(self) -> Optimizer:
@@ -325,6 +340,12 @@ class Reaction:
                 raise ValueError(
                     "path: its transition state is not this reaction's optimized "
                     "transition state; the path does not belong to this reaction"
+                )
+            elif path.freq_scale != self._freq_scale:
+                raise ValueError(
+                    f"path: its frequencies are scaled by {path.freq_scale}, "
+                    f"this reaction's by {self._freq_scale}; recompute it with "
+                    "this reaction's compute_mep()"
                 )
             cvt = cvt_rate(points.reactants, path, t, points.ts.imag_threshold)
         # optimize() checked that the transition state is a first-order saddle.
@@ -540,6 +561,7 @@ class Reaction:
                 freqs, _ = generalized_normal_modes(
                     record.molecule, hessian, gradient, ts_mode
                 )
+            freqs = freqs * self._freq_scale
             frequencies.append(freqs)
             zpe[i] = generalized_zpe(freqs, ts.imag_threshold)
             large = freqs[freqs < -ts.imag_threshold]
@@ -576,6 +598,7 @@ class Reaction:
             oriented=sign is not None,
             coordinates=coords,
             internals=used,
+            freq_scale=self._freq_scale,
         )
 
     def _trace_stored(
@@ -642,10 +665,12 @@ class Reaction:
         label = species_label(guess, role)
         if guess.n_atoms == 1:
             return StationaryPoint.from_frequencies(
-                guess, self.engine.energy(guess), []
+                guess, self.engine.energy(guess), [], freq_scale=self._freq_scale
             )
         mol, energy = self._optimized(guess, kind, label)
-        sp = StationaryPoint.from_hessian(mol, energy, self.engine.hessian(mol))
+        sp = StationaryPoint.from_hessian(
+            mol, energy, self.engine.hessian(mol), freq_scale=self._freq_scale
+        )
         check_character(sp, kind, label)
         return sp
 

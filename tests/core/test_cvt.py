@@ -36,7 +36,7 @@ def reactants():
     return [h2(), h_atom()]
 
 
-def make_path(s, energies, frequencies, molecules=None, oriented=True):
+def make_path(s, energies, frequencies, molecules=None, oriented=True, freq_scale=1.0):
     """A hand-made path; ``frequencies`` holds one array (or None) per point."""
     s = np.asarray(s, dtype=np.float64)
     n = s.size
@@ -60,6 +60,7 @@ def make_path(s, energies, frequencies, molecules=None, oriented=True):
         stop_product="s_limit",
         oriented=oriented,
         coordinates="redundant",
+        freq_scale=freq_scale,
     )
 
 
@@ -332,3 +333,17 @@ def test_parabola_without_an_interior_minimum_is_rejected():
     assert _parabola_minimum(x, np.array([3.0, 2.0, 1.5])) is None
     vertex = _parabola_minimum(x, np.array([2.0, 1.0, 2.0]))
     assert vertex == pytest.approx((0.1, 1.0))
+
+
+# Frequency scale
+
+
+def test_cvt_reads_scaled_frequencies_as_stored():
+    energies = E_TS - 0.02 * S_GRID**2
+    scaled = [0.95 * np.asarray(GENERALIZED)] * S_GRID.size
+    recorded = make_path(S_GRID, energies, scaled, freq_scale=0.95)
+    by_hand = make_path(S_GRID, energies, scaled)
+    a = cvt_rate(reactants(), recorded, T_GRID)
+    b = cvt_rate(reactants(), by_hand, T_GRID)
+    np.testing.assert_array_equal(a.k, b.k)
+    np.testing.assert_array_equal(a.s_star, b.s_star)

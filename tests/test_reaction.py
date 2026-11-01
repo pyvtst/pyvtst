@@ -8,7 +8,7 @@ from pyvtst import Molecule, RateResult, Reaction, ReactionPath
 from pyvtst.core.mep import generalized_zpe
 from pyvtst.core.rates import tst_rate, zpe_energy
 from pyvtst.core.stationary import StationaryPointError
-from pyvtst.core.tunneling import eckart
+from pyvtst.core.tunneling import eckart, wigner
 from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
 from pyvtst.core.vib import curvilinear_generalized_modes, generalized_normal_modes
 from pyvtst.engines import CachedEngine
@@ -505,13 +505,20 @@ def exact_optimizer():
     )
 
 
-def mep_reaction(engine, store=None, masses=(None, None, None)):
+def mep_reaction(engine, store=None, masses=(None, None, None), freq_scale=1.0):
     """H2 + H on LEPS with exact stationary points; masses per role."""
     h2_masses, h_masses, ts_masses = masses
     h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]], masses=h2_masses)
     h = Molecule(["H"], [[0.0, 0.0, 0.0]], mult=2, masses=h_masses)
     ts = collinear_h3(1.6, 1.9, masses=ts_masses)
-    return Reaction([h2, h], ts, engine, optimizer=exact_optimizer(), store=store)
+    return Reaction(
+        [h2, h],
+        ts,
+        engine,
+        optimizer=exact_optimizer(),
+        store=store,
+        freq_scale=freq_scale,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -1020,3 +1027,92 @@ def test_redundant_warning_has_no_hint(monkeypatch):
     with pytest.warns(UserWarning, match=r"s = -0\.4000") as record:
         mep_reaction(LEPSEngine()).compute_mep(-0.4, 0.4, ds=0.1)
     assert all("coordinates=" not in str(w.message) for w in record)
+
+
+# Frequency scale factor
+
+
+@pytest.mark.parametrize("bad", [0.0, float("inf")])
+def test_invalid_frequency_scale_fails_fast(bad):
+    engine = CountingEngine()
+    with pytest.raises(ValueError, match="freq_scale"):
+        mep_reaction(engine, freq_scale=bad)
+    assert sum(engine.calls.values()) == 0
+
+
+def test_frequency_scale_is_read_only():
+    rxn = mep_reaction(LEPSEngine(), freq_scale=0.9)
+    assert rxn.freq_scale == 0.9
+    with pytest.raises(AttributeError):
+        rxn.freq_scale = 1.0
+
+
+def test_default_frequency_scale_changes_nothing():
+    t = [300.0, 1000.0]
+    plain = mep_reaction(LEPSEngine()).rates(t, theory="cvt", tunneling="eckart")
+    unit = mep_reaction(LEPSEngine(), freq_scale=1.0).rates(
+        t, theory="cvt", tunneling="eckart"
+    )
+    np.testing.assert_array_equal(plain.k, unit.k)
+    np.testing.assert_array_equal(plain.k_tst, unit.k_tst)
+    np.testing.assert_array_equal(plain.kappa, unit.kappa)
+
+
+def test_scaled_species_and_tunneling():
+    plain = mep_reaction(LEPSEngine())
+    scaled = mep_reaction(LEPSEngine(), freq_scale=0.9)
+    ts1, ts9 = plain.optimize().ts, scaled.optimize().ts
+    assert ts9.freq_scale == 0.9
+    np.testing.assert_allclose(ts9.frequencies, 0.9 * ts1.frequencies, rtol=1e-12)
+    assert all(sp.freq_scale == 0.9 for sp in scaled.optimize().reactants)
+    result = scaled.rates(300.0, tunneling="wigner")
+    assert ts1.imaginary_frequency is not None
+    expected = wigner(0.9 * ts1.imaginary_frequency, [300.0])
+    np.testing.assert_allclose(result.kappa, expected, rtol=1e-12)
+
+
+@pytest.mark.parametrize("coordinates", ["redundant", "cartesian"])
+def test_scaled_adiabatic_curve(coordinates):
+    plain = mep_reaction(LEPSEngine()).compute_mep(coordinates=coordinates)
+    rxn = mep_reaction(LEPSEngine(), freq_scale=0.9)
+    path = rxn.compute_mep(coordinates=coordinates)
+    assert path.freq_scale == 0.9
+    for a, b in zip(path.frequencies, plain.frequencies, strict=True):
+        assert (a is None) == (b is None)
+        if a is not None and b is not None:
+            np.testing.assert_allclose(a, 0.9 * b, rtol=1e-12)
+    mask = path.has_frequencies
+    np.testing.assert_allclose(path.zpe[mask], 0.9 * plain.zpe[mask], rtol=1e-12)
+    barrier = rxn.rates(300.0).barrier_kcal / HARTREE_TO_KCAL_PER_MOL
+    assert path.v_ag[path.ts_index] == pytest.approx(barrier, abs=1e-10)
+
+
+def test_changing_the_frequency_scale_is_free():
+    store = MemoryStore()
+    first = mep_reaction(CountingEngine(), store)
+    a = first.rates(300.0, theory="cvt")
+    engine = CountingEngine()
+    second = mep_reaction(engine, store, freq_scale=0.95)
+    b = second.rates(300.0, theory="cvt")
+    p1, p2 = first.compute_mep(), second.compute_mep()
+    assert sum(engine.calls.values()) == 0
+    assert second.optimize().ts.molecule == first.optimize().ts.molecule
+    np.testing.assert_array_equal(p1.s, p2.s)
+    np.testing.assert_allclose(
+        second.optimize().ts.frequencies,
+        0.95 * first.optimize().ts.frequencies,
+        rtol=1e-12,
+    )
+    for f1, f2 in zip(p1.frequencies, p2.frequencies, strict=True):
+        if f1 is not None and f2 is not None:
+            np.testing.assert_allclose(f2, 0.95 * f1, rtol=1e-12)
+    assert a.cvt is not None
+    assert b.cvt is not None
+    np.testing.assert_array_equal(a.cvt.s, b.cvt.s)
+
+
+def test_path_computed_with_another_frequency_scale():
+    p = mep_reaction(LEPSEngine()).compute_mep()
+    rxn = mep_reaction(LEPSEngine(), freq_scale=0.95)
+    with pytest.raises(ValueError, match=r"scaled by 1\.0, this reaction's by 0\.95"):
+        rxn.rates(300.0, theory="cvt", path=p)

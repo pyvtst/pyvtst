@@ -25,7 +25,11 @@ import scipy.optimize
 
 from pyvtst.core.internals import Internal
 from pyvtst.core.molecule import Molecule
-from pyvtst.core.stationary import DEFAULT_IMAG_THRESHOLD, StationaryPoint
+from pyvtst.core.stationary import (
+    DEFAULT_IMAG_THRESHOLD,
+    StationaryPoint,
+    check_freq_scale,
+)
 from pyvtst.core.units import CM1_TO_HARTREE, HARTREE_TO_KCAL_PER_MOL
 
 FloatArray = npt.NDArray[np.float64]
@@ -402,6 +406,8 @@ class ReactionPath:
             or ``"cartesian"``.
         internals: The internal coordinates used, as ``(kind, *atom
             indices)`` tuples; empty for ``"cartesian"``.
+        freq_scale: The scale factor ``frequencies`` already carry; ``zpe``
+            and ``v_ag`` use the scaled values. Finite and > 0.
 
     All arrays are read-only. Instances compare by value.
     """
@@ -422,6 +428,7 @@ class ReactionPath:
     oriented: bool
     coordinates: Coordinates = "cartesian"
     internals: tuple[Internal, ...] = ()
+    freq_scale: float = 1.0
 
     def __post_init__(self) -> None:
         if self.coordinates not in COORDINATES:
@@ -453,6 +460,7 @@ class ReactionPath:
         object.__setattr__(self, "frequencies", freqs)
         object.__setattr__(self, "zpe", zpe)
         object.__setattr__(self, "internals", tuple(map(tuple, self.internals)))
+        object.__setattr__(self, "freq_scale", check_freq_scale(self.freq_scale))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ReactionPath):
@@ -478,6 +486,7 @@ class ReactionPath:
             and self.oriented == other.oriented
             and self.coordinates == other.coordinates
             and self.internals == other.internals
+            and self.freq_scale == other.freq_scale
         )
 
     __hash__ = None  # type: ignore[assignment]

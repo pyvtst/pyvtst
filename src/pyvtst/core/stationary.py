@@ -40,6 +40,8 @@ class StationaryPoint:
             this (cm⁻¹) are numerical noise: they are not counted as imaginary
             and enter the vibrational partition function and the ZPE with
             their magnitude. A warning is emitted for each at construction.
+        freq_scale: The scale factor ``frequencies`` already carry, recorded
+            so results show which factor produced them. Finite and > 0.
 
     Build instances with :meth:`from_hessian` or :meth:`from_frequencies`.
     Instances compare by value.
@@ -50,6 +52,7 @@ class StationaryPoint:
     frequencies: FloatArray
     modes: FloatArray | None = None
     imag_threshold: float = DEFAULT_IMAG_THRESHOLD
+    freq_scale: float = 1.0
 
     def __post_init__(self) -> None:
         energy = float(self.energy)
@@ -58,6 +61,7 @@ class StationaryPoint:
         threshold = float(self.imag_threshold)
         if not threshold >= 0:
             raise ValueError(f"imag_threshold: must be >= 0, got {threshold}")
+        scale = check_freq_scale(self.freq_scale)
         freqs = np.array(self.frequencies, dtype=np.float64).reshape(-1)
         expected = n_vibrations(self.molecule)
         if freqs.size != expected:
@@ -80,6 +84,7 @@ class StationaryPoint:
             modes.flags.writeable = False
         object.__setattr__(self, "energy", energy)
         object.__setattr__(self, "imag_threshold", threshold)
+        object.__setattr__(self, "freq_scale", scale)
         object.__setattr__(self, "frequencies", freqs)
         object.__setattr__(self, "modes", modes)
 
@@ -100,10 +105,17 @@ class StationaryPoint:
         energy: float,
         hessian: npt.ArrayLike,
         imag_threshold: float = DEFAULT_IMAG_THRESHOLD,
+        freq_scale: float = 1.0,
     ) -> StationaryPoint:
-        """Characterize ``mol`` from its Cartesian Hessian in hartree/bohr²."""
+        """Characterize ``mol`` from its Cartesian Hessian in hartree/bohr².
+
+        Every frequency, imaginary ones included, is multiplied by
+        ``freq_scale`` after diagonalization; the normal modes are unchanged.
+        The threshold and the classification apply to the scaled values.
+        """
+        scale = check_freq_scale(freq_scale)
         freqs, modes = normal_modes(mol, hessian)
-        return cls(mol, energy, freqs, modes, imag_threshold)
+        return cls(mol, energy, freqs * scale, modes, imag_threshold, scale)
 
     @classmethod
     def from_frequencies(
@@ -112,15 +124,18 @@ class StationaryPoint:
         energy: float,
         frequencies: Sequence[float] | npt.ArrayLike,
         imag_threshold: float = DEFAULT_IMAG_THRESHOLD,
+        freq_scale: float = 1.0,
     ) -> StationaryPoint:
         """Build a stationary point from frequencies in cm⁻¹ (e.g. published).
 
         Imaginary frequencies are given as negative values. The count must be
-        3N-6, 3N-5 for a linear molecule, or 0 for a single atom.
+        3N-6, 3N-5 for a linear molecule, or 0 for a single atom. Each is
+        multiplied by ``freq_scale``; keep the default 1.0 for frequencies
+        that are already scaled.
         """
-        return cls(
-            mol, energy, np.asarray(frequencies, dtype=np.float64), None, imag_threshold
-        )
+        scale = check_freq_scale(freq_scale)
+        freqs = np.asarray(frequencies, dtype=np.float64) * scale
+        return cls(mol, energy, freqs, None, imag_threshold, scale)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, StationaryPoint):
@@ -131,6 +146,7 @@ class StationaryPoint:
             and np.array_equal(self.frequencies, other.frequencies)
             and _same_modes(self.modes, other.modes)
             and self.imag_threshold == other.imag_threshold
+            and self.freq_scale == other.freq_scale
         )
 
     __hash__ = None  # type: ignore[assignment]
@@ -177,6 +193,19 @@ class StationaryPoint:
     @property
     def is_linear(self) -> bool:
         return is_linear(self.molecule)
+
+
+def check_freq_scale(freq_scale: float) -> float:
+    """Return a frequency scale factor as a float; raise unless finite and > 0."""
+    try:
+        scale = float(freq_scale)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"freq_scale: expected a finite number > 0, got {freq_scale!r}"
+        ) from None
+    if not (np.isfinite(scale) and scale > 0):
+        raise ValueError(f"freq_scale: must be finite and > 0, got {scale}")
+    return scale
 
 
 def species_label(mol: Molecule, role: str = "") -> str:
