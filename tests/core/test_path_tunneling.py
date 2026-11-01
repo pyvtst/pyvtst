@@ -331,3 +331,39 @@ def test_path_without_curvature():
 def test_effective_mass_needs_two_points():
     with pytest.raises(ValueError, match="two or more"):
         sct_effective_mass([0.0], [GENERALIZED], [[0.1, 0.2, 0.3]], 0.0)
+
+
+def test_effective_mass_checks_its_inputs():
+    with pytest.raises(ValueError, match="one entry per point"):
+        sct_effective_mass([0.0, 0.1], [GENERALIZED], [[0.1, 0.2, 0.3]] * 2, 0.0)
+    with pytest.raises(ValueError, match="point 1 has 2 components for 3"):
+        sct_effective_mass(
+            [0.0, 0.1], [GENERALIZED] * 2, [[0.1, 0.2, 0.3], [0.1, 0.2]], 0.0
+        )
+
+
+# A barrier top between path points
+
+
+S_OFF = 0.013  # bohr, between the points at 0 and 0.05
+
+
+def test_barrier_top_between_path_points():
+    v = parabola(S_LONG - S_OFF)
+    profile = _Profile(S_LONG, v)
+    assert profile.s_max == pytest.approx(S_OFF, abs=1e-10)
+    assert profile.v_max == pytest.approx(10.0 * KCAL, rel=1e-12)
+    assert profile.v_max > v.max()
+
+
+def test_turning_points_between_the_same_path_points():
+    # Just below the top both turning points lie between s = 0 and 0.05.
+    v_top = 10.0 * KCAL
+    omega = 1500.0 * CM1_TO_HARTREE
+    table = _ThetaTable(
+        _Profile(S_LONG, parabola(S_LONG - S_OFF)), _ZeroCurvature(), 0.0
+    )
+    e = v_top - 1e-6
+    roots = table.profile.spline.solve(e, extrapolate=False)
+    assert np.all((roots > 0.0) & (roots < 0.05))
+    assert table._theta(e) == pytest.approx(np.pi * (v_top - e) / omega, rel=1e-6)
