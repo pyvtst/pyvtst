@@ -357,13 +357,6 @@ def test_rates_over_a_wide_range_and_second_call_is_free(rxn, engine):
     assert np.all(np.isfinite(first.k) & (first.k > 0))
 
 
-def test_cvt_not_yet_available(engine, h2_stretched, h_atom, h3_ts_guess):
-    rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
-    with pytest.raises(NotImplementedError, match=r"cvt.*not implemented yet"):
-        rxn.rates(300, theory="cvt")
-    assert sum(engine.calls.values()) == 0
-
-
 def test_zct_not_yet_available(engine, h2_stretched, h_atom, h3_ts_guess):
     rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
     with pytest.raises(NotImplementedError, match=r"zct.*not implemented yet"):
@@ -372,8 +365,8 @@ def test_zct_not_yet_available(engine, h2_stretched, h_atom, h3_ts_guess):
 
 def test_unknown_theory(engine, h2_stretched, h_atom, h3_ts_guess):
     rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
-    with pytest.raises(ValueError, match="'tst'"):
-        rxn.rates(300, theory="vtst")
+    with pytest.raises(ValueError, match="'tst' or 'cvt'"):
+        rxn.rates(300, theory="icvt")
 
 
 def test_unknown_tunneling_method(engine, h2_stretched, h_atom, h3_ts_guess):
@@ -642,6 +635,86 @@ def test_euler_defaults():
     np.testing.assert_array_equal(
         np.flatnonzero(path.has_frequencies), [0, 10, 20, 30, 40, 50, 60]
     )
+
+
+# Variational TST
+
+
+def test_cvt_runs_the_path_when_needed():
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    result = rxn.rates([300.0, 1000.0], theory="cvt")
+    assert engine.calls["hessian"] > 3
+    assert result.theory == "cvt"
+    assert result.cvt is not None
+    assert result.cvt.s[0] == pytest.approx(-0.5)
+    assert result.cvt.s[-1] == pytest.approx(0.5)
+    assert np.all(result.cvt.k <= result.k_tst)
+
+
+def test_cvt_reuses_the_stored_path():
+    store = MemoryStore()
+    mep_reaction(CountingEngine(), store).compute_mep()
+    engine = CountingEngine()
+    mep_reaction(engine, store).rates(300.0, theory="cvt")
+    assert sum(engine.calls.values()) == 0
+
+
+def test_cvt_on_a_given_path():
+    rxn = mep_reaction(LEPSEngine())
+    p = rxn.compute_mep(s_min=-1.0, s_max=1.0, coordinates="cartesian")
+    result = rxn.rates(300.0, theory="cvt", path=p)
+    assert result.cvt is not None
+    np.testing.assert_array_equal(result.cvt.s, p.s[p.has_frequencies])
+    assert result.cvt.s[0] < -0.5
+    assert result.cvt.s[-1] > 0.5
+
+
+@pytest.mark.filterwarnings("ignore:the transition state's atoms do not match")
+def test_path_from_another_reaction():
+    other = mep_reaction(LEPSEngine(), masses=(None, None, [D_MASS, 1.008, 1.008]))
+    p = other.compute_mep(s_min=-0.1, s_max=0.1)
+    rxn = mep_reaction(LEPSEngine())
+    with pytest.raises(ValueError, match="does not belong to this reaction"):
+        rxn.rates(300.0, theory="cvt", path=p)
+
+
+def test_path_without_cvt(lqa_path):
+    engine = CountingEngine()
+    rxn = mep_reaction(engine)
+    with pytest.raises(ValueError, match='only with theory="cvt"'):
+        rxn.rates(300.0, path=lqa_path)
+    assert sum(engine.calls.values()) == 0
+    assert not rxn.optimizer.calls
+
+
+def test_path_must_be_a_reaction_path():
+    rxn = mep_reaction(CountingEngine())
+    with pytest.raises(TypeError, match="ReactionPath"):
+        rxn.rates(300.0, theory="cvt", path=[0.0, 0.1])
+
+
+def test_cvt_arrays_are_consistent():
+    rxn = mep_reaction(LEPSEngine())
+    t = [300.0, 600.0, 1000.0]
+    result = rxn.rates(t, theory="cvt", tunneling="eckart")
+    tst = rxn.rates(t, tunneling="eckart")
+    assert result.cvt is not None
+    assert tst.cvt is None
+    np.testing.assert_array_equal(result.k, result.cvt.k * result.kappa)
+    np.testing.assert_array_equal(result.k_tst, tst.k_tst)
+    np.testing.assert_array_equal(result.kappa, tst.kappa)
+    assert result.units == tst.units == result.cvt.units
+
+
+def test_cvt_table_output():
+    result = mep_reaction(LEPSEngine()).rates([300.0, 500.0, 1000.0], theory="cvt")
+    lines = result.table().splitlines()
+    assert len(lines) == 4
+    assert "s*" in lines[0]
+    assert "k_CVT" in lines[0]
+    assert "cm^3 molecule^-1 s^-1" in lines[0]
+    assert len(lines[1].split()) == 6
 
 
 # Caching and resume

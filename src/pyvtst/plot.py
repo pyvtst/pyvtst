@@ -1,4 +1,5 @@
-"""Plots of minimum-energy paths: V_MEP(s) and V_a^G(s) with matplotlib.
+"""Plots with matplotlib: V_MEP(s) and V_a^G(s) of minimum-energy paths, and
+the generalized free energy of activation ΔG^GT,°(T, s) of CVT results.
 
 matplotlib is optional (``pip install "pyvtst[plot]"``) and imported only
 when a plot function is called.
@@ -8,11 +9,12 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from pyvtst.core.mep import ReactionPath
+from pyvtst.core.rates import CVTResult
 from pyvtst.core.units import (
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
@@ -21,6 +23,8 @@ from pyvtst.core.units import (
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
+
+    from pyvtst.reaction import RateResult
 
 CURVES = ("v_mep", "v_ag")
 UNITS = {
@@ -105,19 +109,12 @@ def _plot(
             raise TypeError(f"paths: expected ReactionPath, got {type(p).__name__}")
     if not chosen or any(c not in CURVES for c in chosen):
         raise ValueError(f"curves: expected 'v_mep' and/or 'v_ag', got {curves!r}")
-    if units not in UNITS:
-        listed = ", ".join(repr(u) for u in UNITS)
-        raise ValueError(f"units: expected one of {listed}, got {units!r}")
+    _check_units(units)
     if labels is not None and len(labels) != len(paths):
         raise ValueError(
             f"labels: expected {len(paths)} labels, one per path, got {len(labels)}"
         )
-    try:
-        import matplotlib.pyplot as plt  # noqa: PLC0415
-    except ImportError as exc:
-        raise ImportError(
-            f'{caller} needs matplotlib: pip install "pyvtst[plot]"'
-        ) from exc
+    plt = _pyplot(caller)
 
     if ax is None:
         _, ax = plt.subplots()
@@ -167,3 +164,69 @@ def _plot(
 def _overlay_scale(i: int, n: int) -> float:
     """Line-width factor of path ``i`` of ``n``: from 2.5 for the first to 1."""
     return 1.0 if n == 1 else 1.0 + 1.5 * (n - 1 - i) / (n - 1)
+
+
+def plot_free_energy(
+    result: RateResult | CVTResult,
+    *,
+    ax: Axes | None = None,
+    units: str = "kcal/mol",
+) -> Axes:
+    """Plot ΔG^GT,°(T, s) against s, one curve per temperature; return the ``Axes``.
+
+    ΔG^GT,° is the generalized free energy of activation relative to the
+    reactants, at the standard pressure p° = 1 bar. Each curve is labelled
+    with its temperature and its maximum, at the variational transition state
+    s*(T), is marked.
+
+    Args:
+        result: A :class:`~pyvtst.RateResult` computed with ``theory="cvt"``,
+            or its ``cvt`` details.
+        ax: Axes to draw on; a new figure is created when omitted.
+        units: Energy unit: ``"kcal/mol"``, ``"kJ/mol"``, ``"eV"`` or
+            ``"hartree"``.
+
+    Raises:
+        ValueError: ``result`` has no CVT details, or an unknown unit.
+        ImportError: matplotlib is not installed.
+    """
+    cvt = result if isinstance(result, CVTResult) else getattr(result, "cvt", None)
+    if not isinstance(cvt, CVTResult):
+        raise ValueError(
+            'result: CVT results are needed; compute them with theory="cvt"'
+        )
+    _check_units(units)
+    plt = _pyplot("plot_free_energy")
+
+    if ax is None:
+        _, ax = plt.subplots()
+    factor = UNITS[units]
+    for i, t in enumerate(cvt.T):
+        (line,) = ax.plot(cvt.s, cvt.delta_g[i] * factor, label=f"{t:g} K")
+        ax.scatter(
+            [cvt.s_star[i]],
+            [cvt.delta_g_star[i] * factor],
+            color=line.get_color(),
+            zorder=3,
+            label="_nolegend_",
+        )
+    ax.set_xlabel("s (bohr)")
+    ax.set_ylabel(f"ΔG ({units})")
+    ax.legend()
+    return ax
+
+
+def _check_units(units: str) -> None:
+    if units not in UNITS:
+        listed = ", ".join(repr(u) for u in UNITS)
+        raise ValueError(f"units: expected one of {listed}, got {units!r}")
+
+
+def _pyplot(caller: str) -> Any:
+    try:
+        import matplotlib.pyplot as plt  # noqa: PLC0415
+    except ImportError as exc:
+        raise ImportError(
+            f'{caller} needs matplotlib: pip install "pyvtst[plot]"'
+        ) from exc
+    return plt

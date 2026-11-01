@@ -53,6 +53,24 @@ print(",".join(sorted(
 """
 
 
+# Computing CVT rate constants does not need matplotlib.
+CVT_SCRIPT = """
+import sys
+sys.path.insert(0, ".")
+from tests.test_reaction import mep_reaction
+from tests.fakes.leps import LEPSEngine
+mep_reaction(LEPSEngine()).rates(300.0, theory="cvt")
+print("matplotlib" in sys.modules)
+"""
+
+
+def test_cvt_does_not_import_matplotlib():
+    result = subprocess.run(
+        [sys.executable, "-c", CVT_SCRIPT], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
+
+
 def test_cache_keys_import_only_core():
     result = subprocess.run(
         [sys.executable, "-c", KEYS_SCRIPT], capture_output=True, text=True, check=True
