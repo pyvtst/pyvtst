@@ -17,8 +17,8 @@ Thermal rate constants for gas-phase chemical reactions from transition state
 theory, with tunneling corrections.
 
 > **Status: pre-alpha.** Conventional TST rate constants with Wigner and
-> Eckart tunneling are available; CVT and zero-curvature tunneling are not
-> yet.
+> Eckart tunneling, and minimum-energy paths, are available; CVT and
+> zero-curvature tunneling are not yet.
 
 ## Installation
 
@@ -29,6 +29,7 @@ pip install "pyvtst[rdkit]"     # + 3D structures from SMILES
 pip install "pyvtst[pyscf]"     # + energies, gradients and Hessians from PySCF
 pip install "pyvtst[geometric]" # + geometry optimization with geomeTRIC
 pip install "pyvtst[hdf5]"      # + result caching in HDF5 files
+pip install "pyvtst[plot]"      # + reaction path plots with matplotlib
 ```
 
 ## Quick start
@@ -169,6 +170,64 @@ engine.hessian(h2)  # computed once, then read from results.h5
 
 A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
 its own store, and the `Reaction`'s optimized geometries go to `store=`.
+
+### Reaction path
+
+`compute_mep()` traces the minimum-energy path (MEP) through the transition
+state, optimizing first if needed. With `rxn` from the quick start:
+
+```python
+path = rxn.compute_mep(s_min=-0.5, s_max=0.5)  # bohr
+print(path.table())
+```
+
+s is the arc length in mass-scaled coordinates with a scaling mass of 1 amu,
+so it is in bohr, with s = 0 at the transition state and s < 0 on the reactant
+side. `path.s`, `path.v_mep`, `path.v_ag` and `path.zpe` are numpy arrays, one
+value per point. V_MEP is the energy relative to the reactants and V_a^G adds
+the generalized zero-point energy, relative to the reactants' zero-point
+level, both in hartree. `path.frequencies` holds the generalized frequencies
+(cm⁻¹) at each point with a Hessian: translations, rotations and the path
+direction are projected out.
+
+| `method` | Default `ds` | Hessians |
+| --- | --- | --- |
+| `"lqa"` (default) | 0.01 bohr | At every point (Page–McIver local quadratic approximation) |
+| `"euler"` | 0.001 bohr | Every `hessian_every` points, default 10 (steepest descent from gradients) |
+
+With PySCF a Hessian costs far more than a gradient. The default LQA path
+from −0.5 to 0.5 bohr needs 100 Hessians. Euler at its defaults also computes
+one Hessian every 0.01 bohr, plus ten times as many gradients; raise
+`hessian_every` when Hessians are expensive. V_a^G and the frequencies exist
+only at points with a Hessian.
+
+Every point goes to the `Reaction`'s store as soon as it is computed. An
+interrupted `compute_mep()` resumes from the last stored point, wider limits
+compute only the new points, and a repeated call is free. A different
+`method`, `ds` or `hessian_every` starts a new path.
+
+Which side is s < 0 is decided from geometry, so list the transition state's
+atoms in the same order as the reactants' atoms concatenated (and the
+products', if given), with the same elements and masses. Otherwise the path
+is still computed, `path.oriented` is false, and a warning says the sign of s
+is arbitrary. A side that stops before its limit, at a minimum or because the
+next step would go uphill (try a smaller `ds`), gives a warning;
+`path.stop_reactant` and `path.stop_product` say why each side stopped.
+
+`plot_path` and `plot_paths` (with the `plot` extra) draw V_MEP as a solid
+line and V_a^G as a dashed one, mark the transition state and return the
+matplotlib `Axes`. Paths from different methods, step sizes or engines share
+one axis, one color per path:
+
+```python
+from pyvtst import plot_path, plot_paths
+
+ax = plot_path(path)
+ax.figure.savefig("h3_mep.png")
+
+euler = rxn.compute_mep(method="euler")
+ax = plot_paths([path, euler], labels=["LQA", "Euler"], units="kJ/mol")
+```
 
 ## Contributing
 

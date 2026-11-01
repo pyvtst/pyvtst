@@ -1624,6 +1624,9 @@ geometric = [
 hdf5 = [
     { name = "h5py" },
 ]
+plot = [
+    { name = "matplotlib" },
+]
 pyscf = [
     { name = "pyscf" },
 ]
@@ -1649,12 +1652,13 @@ requires-dist = [
     { name = "ase", marker = "extra == 'ase'", specifier = ">=3.22" },
     { name = "geometric", marker = "extra == 'geometric'", specifier = ">=1.1" },
     { name = "h5py", marker = "extra == 'hdf5'", specifier = ">=3.8" },
+    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.7" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pyscf", marker = "extra == 'pyscf'", specifier = ">=2.4" },
     { name = "rdkit", marker = "extra == 'rdkit'", specifier = ">=2023.9" },
     { name = "scipy", specifier = ">=1.10" },
 ]
-provides-extras = ["ase", "geometric", "hdf5", "pyscf", "rdkit"]
+provides-extras = ["ase", "geometric", "hdf5", "plot", "pyscf", "rdkit"]
 
 [package.metadata.requires-dev]
 dev = [
