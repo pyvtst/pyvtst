@@ -14,6 +14,7 @@ from pyvtst.core.vib import curvilinear_generalized_modes, generalized_normal_mo
 from pyvtst.engines import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
 from pyvtst.ports import ConvergenceError, OptimizationResult
+from pyvtst.reaction import THEORIES
 from pyvtst.stores import MemoryStore
 from tests.fakes.leps import R0, LEPSEngine, collinear_h3, saddle_distance
 
@@ -359,8 +360,8 @@ def test_rates_over_a_wide_range_and_second_call_is_free(rxn, engine):
 
 def test_unknown_theory(engine, h2_stretched, h_atom, h3_ts_guess):
     rxn = Reaction([h2_stretched, h_atom], h3_ts_guess, engine)
-    with pytest.raises(ValueError, match="'tst' or 'cvt'"):
-        rxn.rates(300, theory="icvt")
+    with pytest.raises(ValueError, match="'tst', 'cvt', 'icvt' or 'muvt'"):
+        rxn.rates(300, theory="us")
 
 
 def test_unknown_tunneling_method(engine, h2_stretched, h_atom, h3_ts_guess):
@@ -682,10 +683,12 @@ def test_path_from_another_reaction():
 
 
 @pytest.mark.parametrize("tunneling", [None, "wigner", "eckart"])
-def test_path_without_cvt(lqa_path, tunneling):
+def test_path_without_a_path_based_calculation(lqa_path, tunneling):
     engine = CountingEngine()
     rxn = mep_reaction(engine)
-    with pytest.raises(ValueError, match='only with theory="cvt" or tunneling="zct"'):
+    with pytest.raises(
+        ValueError, match='only with theory="cvt", "icvt" or "muvt" or tunneling="zct"'
+    ):
         rxn.rates(300.0, tunneling=tunneling, path=lqa_path)
     assert sum(engine.calls.values()) == 0
     assert not rxn.optimizer.calls
@@ -718,6 +721,74 @@ def test_cvt_table_output():
     assert "k_CVT" in lines[0]
     assert "cm^3 molecule^-1 s^-1" in lines[0]
     assert len(lines[1].split()) == 6
+
+
+# ICVT and µVT
+
+
+@pytest.fixture(scope="module")
+def variational_results():
+    rxn = mep_reaction(LEPSEngine())
+    t = [300.0, 1000.0]
+    with warnings.catch_warnings():
+        # The default ±0.5 bohr path is too short for the µVT high-energy tail.
+        warnings.filterwarnings("ignore", "muVT. at T")
+        return {theory: rxn.rates(t, theory=theory) for theory in THEORIES}
+
+
+def test_icvt_and_muvt(variational_results):
+    cvt, icvt, muvt = (variational_results[t] for t in ("cvt", "icvt", "muvt"))
+    assert np.all(icvt.k <= cvt.k)
+    assert np.all(muvt.k <= cvt.k)
+    assert np.all(muvt.k <= icvt.k)
+
+
+def test_ordering_of_the_variational_theories(variational_results):
+    tst, cvt, icvt, muvt = (variational_results[t] for t in THEORIES)
+    assert np.all(muvt.k <= icvt.k)
+    assert np.all(icvt.k <= cvt.k)
+    assert np.all(cvt.k <= tst.k)
+
+
+def test_icvt_and_muvt_details(variational_results):
+    icvt = variational_results["icvt"]
+    muvt = variational_results["muvt"]
+    assert icvt.icvt is not None
+    assert icvt.cvt is None
+    assert icvt.muvt is None
+    assert muvt.muvt is not None
+    assert muvt.cvt is None
+    assert muvt.icvt is None
+    np.testing.assert_array_equal(icvt.k, icvt.icvt.k * icvt.kappa)
+    np.testing.assert_array_equal(muvt.k, muvt.muvt.k * muvt.kappa)
+    np.testing.assert_array_equal(icvt.k_tst, variational_results["tst"].k_tst)
+
+
+def test_icvt_and_muvt_table_output():
+    rxn = mep_reaction(LEPSEngine())
+    t = [300.0, 500.0, 1000.0]
+    icvt = rxn.rates(t, theory="icvt").table().splitlines()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "muVT. at T")
+        muvt = rxn.rates(t, theory="muvt").table().splitlines()
+    assert len(icvt) == len(muvt) == 4
+    assert "s*" in icvt[0]
+    assert "k_ICVT" in icvt[0]
+    assert len(icvt[1].split()) == 6
+    assert "k_muVT" in muvt[0]
+    assert "s*" not in muvt[0]
+    assert len(muvt[1].split()) == 5
+
+
+@pytest.mark.filterwarnings("ignore:muVT. at T")
+def test_icvt_and_muvt_reuse_the_stored_path():
+    store = MemoryStore()
+    mep_reaction(CountingEngine(), store).compute_mep()
+    engine = CountingEngine()
+    rxn = mep_reaction(engine, store)
+    rxn.rates(300.0, theory="icvt")
+    rxn.rates(300.0, theory="muvt")
+    assert sum(engine.calls.values()) == 0
 
 
 # Caching and resume
@@ -1222,6 +1293,20 @@ def test_zct_and_sct_with_cvt():
     v_ref = np.interp(result.cvt.s_star, pt.s, pt.v_ag)
     expected = np.exp(-(pt.v_max - v_ref) / (BOLTZMANN_AU * np.array(t)))
     np.testing.assert_allclose(pt.kappa_cag, expected, rtol=1e-6)
+
+
+@too_short
+@pytest.mark.filterwarnings("ignore:muVT. at T")
+@pytest.mark.parametrize("theory", ["icvt", "muvt"])
+def test_zct_and_sct_with_icvt_and_muvt(theory):
+    rxn = mep_reaction(LEPSEngine())
+    t = [300.0, 1000.0]
+    result = rxn.rates(t, theory=theory, tunneling="sct")
+    detail = result.icvt if theory == "icvt" else result.muvt
+    assert detail is not None
+    assert result.path_tunneling is not None
+    np.testing.assert_array_equal(result.k, detail.k * result.kappa)
+    np.testing.assert_array_equal(result.path_tunneling.kappa_cag, 1.0)
 
 
 @too_short

@@ -13,11 +13,12 @@
 </p>
 
 Thermal rate constants for gas-phase chemical reactions from conventional and
-canonical variational transition state theory, with tunneling corrections.
+variational transition state theory, with tunneling corrections.
 
-> **Status: pre-alpha.** Conventional and canonical variational TST rate
-> constants with Wigner, Eckart, zero-curvature and small-curvature tunneling,
-> and minimum-energy paths, are available.
+> **Status: pre-alpha.** Conventional TST and canonical, improved canonical and
+> microcanonical variational TST rate constants with Wigner, Eckart,
+> zero-curvature and small-curvature tunneling, and minimum-energy paths, are
+> available.
 
 ## Installation
 
@@ -345,6 +346,39 @@ ax = plot_free_energy(result, units="kJ/mol")
 ax.figure.savefig("h3_cvt.png")
 ```
 
+#### ICVT and µVT
+
+CVT counts every state of the generalized transition state, including those
+below the top V^AG of the vibrationally adiabatic barrier, which cannot react.
+Two theories leave them out. Both start from the threshold energy E_th, which
+is V^AG or, if higher, the reactants' or products' zero-point level:
+
+- `theory="icvt"` (improved CVT) multiplies k^GT(T, s) by the Boltzmann-weighted
+  fraction F(T, s) of the point's states at or above E_th, then takes the
+  minimum over s as CVT does.
+- `theory="muvt"` (microcanonical variational TST) finds the bottleneck
+  separately at each energy E ≥ E_th, where the sum of states
+  N^GT(E − V_a^G(s), s) is lowest, then averages over a Boltzmann distribution.
+
+```python
+icvt = rxn.rates([200, 300, 500], theory="icvt", path=path)
+muvt = rxn.rates([200, 300, 500], theory="muvt", path=path)
+print(icvt.table())  # T, s*, k_TST, k_ICVT, kappa, k
+print(muvt.table())  # T, k_TST, k_muVT, kappa, k
+print(icvt.icvt.f, muvt.muvt.s_star)  # F(T, s); s*(E) on muvt.muvt.energies
+```
+
+k^µVT ≤ k^ICVT ≤ k^CVT. The difference matters at low temperature and when s*
+moves away from the V_a^G maximum. Sums of states count the harmonic
+vibrations exactly on a 1 cm⁻¹ grid, convolved with the same classical rigid
+rotor as the partition functions, so ICVT equals CVT wherever V_a^G(s*) = E_th.
+µVT warns when more than 1 % of its rate comes from energies whose bottleneck
+is an end of the path.
+
+References: B. C. Garrett and D. G. Truhlar, *J. Phys. Chem.* 83, 1079 (1979);
+B. C. Garrett, D. G. Truhlar, R. S. Grev and A. W. Magnuson, *J. Phys. Chem.*
+84, 1730 (1980).
+
 ### Multidimensional tunneling
 
 `tunneling="zct"` (zero-curvature) and `"sct"` (small-curvature) compute κ(T)
@@ -354,7 +388,7 @@ transmission probability P(E) is the uniform semiclassical one through it. SCT
 also lets the tunneling path cut the corner of a curved reaction path, through
 an effective mass μ_eff(s) ≤ μ computed from the path's curvature
 (`path.curvature`, from `compute_mep()`), so κ^SCT ≥ κ^ZCT. Both work with
-either theory:
+any theory:
 
 ```python
 path = rxn.compute_mep(s_min=-2.0, s_max=2.0)
@@ -366,8 +400,9 @@ print(cvt_sct.path_tunneling.e0, cvt_sct.path_tunneling.kappa_cag)
 
 κ includes the classical adiabatic ground-state (CAG) factor
 exp(−[V^AG − V_a^G(s_ref)]/k_B T), which refers it to the rate theory it
-multiplies: s_ref = 0 for TST and s*(T) for CVT. That gives TST/ZCT, TST/SCT,
-CVT/ZCT and CVT/SCT as reported in the literature. `result.path_tunneling`
+multiplies: s_ref = 0 for TST and s*(T) for CVT. ICVT and µVT already use
+V^AG as their threshold, so for them the CAG factor is 1. That gives TST/ZCT,
+CVT/SCT, ICVT/SCT, µVT/SCT and so on, as reported in the literature. `result.path_tunneling`
 holds E₀, the maximum V^AG and its s, the CAG factor, V_a^G and μ_eff/μ at the
 path points, and P(E).
 
