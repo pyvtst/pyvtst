@@ -101,3 +101,8 @@ def test_invalid_e_max(e_max):
 def test_single_atom():
     with pytest.raises(ValueError, match="single atom"):
         sum_of_states(Molecule(["H"], [[0.0, 0.0, 0.0]], mult=2), [], 1000 * CM1)
+
+
+def test_two_dimensional_frequencies():
+    with pytest.raises(ValueError, match="1-D array"):
+        sum_of_states(h3_ts().molecule, [[900.0, 900.0]], 1000 * CM1)

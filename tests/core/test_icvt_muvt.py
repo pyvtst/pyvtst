@@ -7,7 +7,7 @@ import pytest
 
 from pyvtst import Molecule
 from pyvtst.core.partition import ln_q_total
-from pyvtst.core.rates import cvt_rate, point_zpe, zpe_energy
+from pyvtst.core.rates import _variational_minimum, cvt_rate, point_zpe, zpe_energy
 from pyvtst.core.stationary import StationaryPoint
 from pyvtst.core.units import BOLTZMANN_AU, KCAL_PER_MOL_TO_HARTREE
 from pyvtst.core.variational import icvt_rate, muvt_rate, threshold_energy
@@ -268,3 +268,42 @@ def test_muvt_time_and_memory():
     tracemalloc.stop()
     assert elapsed < 10.0
     assert peak < 150e6
+
+
+# Edge cases
+
+
+@pytest.mark.filterwarnings("ignore:VTST. path points with imaginary")
+def test_threshold_without_a_usable_point():
+    path = vag_path([0.0], [10.0], [[-500.0, 900.0, 2000.0]])
+    with pytest.raises(ValueError, match="no point has usable"):
+        threshold_energy(reactants(), path)
+
+
+@pytest.mark.filterwarnings("ignore:CVT. at T", "ignore:ICVT. at T")
+def test_single_point_path():
+    # One point is both ends of the path, so CVT and ICVT warn; µVT has no
+    # neighbour to compare and does not.
+    path = vag_path([0.0], [10.0], [RIGID])
+    cvt = cvt_rate(reactants(), path, T_GRID)
+    icvt = icvt_rate(reactants(), path, T_GRID)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        muvt = muvt_rate(reactants(), path, T_GRID)
+    np.testing.assert_array_equal(icvt.f, 1.0)
+    np.testing.assert_allclose(icvt.ln_k, cvt.ln_k, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(muvt.ln_k, cvt.ln_k, rtol=0.0, atol=1e-10)
+    np.testing.assert_array_equal(muvt.s_star, 0.0)
+
+
+def test_minimum_without_a_parabola_vertex_stays_at_the_point():
+    # F can underflow to 0 at very low T, giving ln k^IGT = -inf at a point;
+    # the parabola through it is undefined, so the point itself is kept.
+    s = np.array([-0.1, 0.0, 0.1])
+    rows = np.array([[1.0, -np.inf, 2.0]])
+    with np.errstate(invalid="ignore"):
+        s_star, ln_star = _variational_minimum(
+            s, rows, np.array([300.0]), rigid_path(), "ICVT"
+        )
+    assert s_star[0] == 0.0
+    assert ln_star[0] == -np.inf
