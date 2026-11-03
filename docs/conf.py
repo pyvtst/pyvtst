@@ -1,6 +1,10 @@
 """Sphinx configuration for the pyvtst documentation."""
 
+import shutil
+import sys
 from importlib.metadata import version as _version
+from pathlib import Path
+from typing import Any
 
 project = "pyvtst"
 author = "Emilian Roșca"
@@ -41,7 +45,7 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 napoleon_use_rtype = False
 
-# README.md links to its own sections by heading anchor.
+# User guide pages link to their own sections by heading anchor.
 myst_heading_anchors = 4
 myst_enable_extensions = ["dollarmath"]
 
@@ -52,12 +56,54 @@ intersphinx_mapping = {
     "matplotlib": ("https://matplotlib.org/stable", None),
 }
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
 html_title = f"pyvtst {release}"
 html_logo = "logo.svg"
 html_theme_options = {
-    "sidebar_hide_name": True,
-    "source_repository": "https://github.com/pyvtst/pyvtst",
-    "source_branch": "main",
-    "source_directory": "docs/",
+    "github_url": "https://github.com/pyvtst/pyvtst",
+    "use_edit_page_button": True,
+    "navbar_align": "left",
+    "show_toc_level": 2,
 }
+# Only the User Guide has a left sidebar.
+html_sidebars = {
+    page: []
+    for page in ("index", "quickstart", "api", "contributing", "_autosummary/*")
+}
+html_static_path = ["_static", "_generated/static"]
+# Target of the "Edit on GitHub" button.
+html_context = {
+    "github_user": "pyvtst",
+    "github_repo": "pyvtst",
+    "github_version": "main",
+    "doc_path": "docs",
+}
+
+
+def _build_figures(app: Any, config: Any) -> None:
+    """Write the figure fragments and copy plotly.js next to the static files."""
+    docs = Path(__file__).parent
+    sys.path.insert(0, str(docs))
+    import figures  # noqa: PLC0415
+    import plotly  # noqa: PLC0415
+
+    figures.build(docs / "_generated" / "figures")
+    static = docs / "_generated" / "static"
+    static.mkdir(parents=True, exist_ok=True)
+    bundle = Path(plotly.__file__).parent / "package_data" / "plotly.min.js"
+    shutil.copyfile(bundle, static / "plotly.min.js")
+
+
+def _add_figure_scripts(
+    app: Any, pagename: str, templatename: str, context: dict[str, Any], doctree: Any
+) -> None:
+    """Load plotly.js only on pages that have figures."""
+    if "pyvtst-figure" in context.get("body", ""):
+        app.add_js_file("plotly.min.js", loading_method="defer")
+        app.add_js_file("figures.js", loading_method="defer")
+
+
+def setup(app: Any) -> None:
+    # Before Sphinx checks that html_static_path exists.
+    app.connect("config-inited", _build_figures, priority=100)
+    app.connect("html-page-context", _add_figure_scripts)

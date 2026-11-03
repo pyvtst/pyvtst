@@ -43,8 +43,9 @@ dev = [
     "scipy-stubs>=1.15.3.0",
 ]
 docs = [
-    "furo>=2025.12.19",
     "myst-parser>=5.1.0",
+    "plotly>=7.1.0",
+    "pydata-sphinx-theme>=0.24.0",
     "sphinx>=9.0.4",
     "sphinx-autodoc-typehints>=3.6.1",
 ]
