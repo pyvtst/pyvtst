@@ -424,7 +424,7 @@ already scaled.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short, set up a
+See [CONTRIBUTING.md](https://github.com/pyvtst/pyvtst/blob/main/CONTRIBUTING.md) for the full guide. In short, set up a
 development environment with [uv](https://docs.astral.sh/uv/) and run the same
 checks as CI:
 
@@ -439,4 +439,4 @@ uv run bandit -c pyproject.toml -r src
 
 ## License
 
-BSD-3-Clause. See [LICENSE](LICENSE).
+BSD-3-Clause. See [LICENSE](https://github.com/pyvtst/pyvtst/blob/main/LICENSE).

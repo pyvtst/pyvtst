@@ -254,8 +254,8 @@ def path_curvature(
     """Return the reaction-path curvature components along generalized modes.
 
     With F the mass-weighted Hessian, g the mass-weighted gradient and
-    v = g/|g| the path direction, the derivative of v along the steepest-descent
-    path is dv/ds = -(I - v vᵀ) F v / |g|, and the components are
+    ``v = g/|g|`` the path direction, the derivative of v along the
+    steepest-descent path is ``dv/ds = -(I - v vᵀ) F v / |g|``, and the components are
     κ_m = L_mᵀ dv/ds. F is the Cartesian Hessian whatever coordinates gave the
     modes: the curvature belongs to the path, and the modes only decide how it
     splits among them. Only κ_m² enters the tunneling, so the overall sign is a

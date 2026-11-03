@@ -29,7 +29,7 @@ _LN2 = float(np.log(2.0))
 
 
 def wigner(nu_imag: float, T: npt.ArrayLike) -> FloatArray:
-    """Wigner transmission coefficient 1 + (1/24)(hc|nu‡|/k_B T)².
+    """Wigner transmission coefficient ``1 + (1/24)(hc|nu‡|/k_B T)²``.
 
     Args:
         nu_imag: Imaginary frequency of the transition state in cm⁻¹ (its

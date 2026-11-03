@@ -51,6 +51,16 @@ uv run pytest                           # coverage must stay at or above 90%
 published results and are skipped by default. Run them with
 `uv run pytest -m slow`.
 
+CI also builds the documentation and fails on any Sphinx warning, so a
+docstring with broken markup fails the build. Check it locally with:
+
+```bash
+uv sync --all-extras --group docs
+uv run sphinx-build -W --keep-going -b html docs docs/_build/html
+```
+
+Open `docs/_build/html/index.html` to view the result.
+
 ## Code guidelines
 
 - **Architecture.** The package is layered: `core` is pure numerics, `ports`
@@ -98,4 +108,4 @@ strings that are valid under [PEP 440](https://peps.python.org/pep-0440/).
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-[BSD-3-Clause License](LICENSE).
+[BSD-3-Clause License](https://github.com/pyvtst/pyvtst/blob/main/LICENSE).
