@@ -687,7 +687,7 @@ def threshold(mode: str) -> go.Figure:
         n_below = 0
         for n in range(int((e_max - v0) / spacing) + 1):
             e = v0 + n * spacing
-            xs, ys = (above if e >= v_top - 1e-9 else below)
+            xs, ys = above if e >= v_top - 1e-9 else below
             xs.extend([s0 - half, s0 + half, None])
             ys.extend([e, e, None])
             n_below += e < v_top - 1e-9
