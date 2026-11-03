@@ -2,10 +2,29 @@
 
 **Transition state theory** (TST) turns the
 [potential energy surface](introduction.md#the-potential-energy-surface) into a
-rate constant. This page explains the theory, then how PyVTST computes each
-part of it.
+rate constant. This page shows how to use it, then explains the theory, then how PyVTST
+computes each part of it.
 
-## The barrier
+## Using it
+
+With `rxn` from the [Quickstart](../quickstart.md), `rates()` gives the TST
+rate constants, one per temperature:
+
+```python
+result = rxn.rates([300, 500, 1000])  # theory="tst" is the default
+print(result.table())  # T, k_TST, kappa, k
+print(result.k)  # cm³ molecule⁻¹ s⁻¹ for a bimolecular reaction
+print(result.barrier_kcal)  # ΔE₀‡ in kcal/mol
+```
+
+The reactants and the transition state are optimized and their Hessians
+computed first, unless they are already stored. To compute a rate constant
+from energies and frequencies you already have, without an engine, see
+[More options](#more-options).
+
+## Theory
+
+### The barrier
 
 The distance along the minimum-energy path is the **reaction coordinate**
 $s$. PyVTST measures it in bohr, with $s = 0$ at the saddle point and
@@ -33,7 +52,7 @@ where $E$ are electronic energies and the sum runs over the reactants. The
 transition state has one vibration fewer than a minimum of the same atoms: its motion along the
 reaction coordinate is not a vibration, so it has no zero-point energy.
 
-## The TST rate constant
+### The TST rate constant
 
 TST places a *dividing surface* across the valley at the saddle point, and
 counts how fast systems in thermal equilibrium cross it from the reactant
@@ -78,7 +97,7 @@ TST rests on three assumptions:
    (no recrossing).
 3. Motion along the reaction coordinate is classical: no tunneling.
 
-[Variational TST](cvt.md) relaxes the second, and the tunneling corrections
+[Variational transition state theory](cvt.md) relaxes the second, and the tunneling corrections
 of [Multidimensional tunneling](tunneling.md) the third.
 
 ## How PyVTST computes it
@@ -111,7 +130,7 @@ $\mathrm{ZPE} = \tfrac{1}{2} \sum_i h c \tilde\nu_i$ over the real
 frequencies, which leaves out the transition state's imaginary one.
 $\Delta E_0^\ddagger$ follows from the formula above and is reported as
 `result.barrier_kcal`. A barrier at or below zero gives a warning, because
-conventional TST is unreliable then; [Variational TST](cvt.md) is the
+conventional TST is unreliable then; [Variational transition state theory](cvt.md) is the
 better choice.
 
 ### 3. Partition functions
@@ -151,20 +170,11 @@ With translational partition functions per unit volume, $k$ comes out in s⁻¹
 for one reactant and m³ molecule⁻¹ s⁻¹ for two; PyVTST reports the latter in
 cm³ molecule⁻¹ s⁻¹. All constants come from `scipy.constants` (CODATA).
 
-## Using it
-
-`rates()` returns the TST rate constants, one per temperature:
-
-```python
-result = rxn.rates([300, 500, 1000])
-print(result.table())
-print(result.k)  # cm³ molecule⁻¹ s⁻¹ for a bimolecular reaction
-print(result.barrier_kcal)  # ΔE₀‡ in kcal/mol
-```
+## More options
 
 `result.k`, `result.k_tst` and `result.kappa` are numpy arrays, one value per
 temperature. `rates()` also takes `theory="cvt"`, `"icvt"` or `"muvt"` for
-[Variational TST](cvt.md) and `tunneling=` for a tunneling correction:
+[Variational transition state theory](cvt.md) and `tunneling=` for a tunneling correction:
 `"wigner"`, `"eckart"`, `"zct"` or `"sct"`; see
 [Multidimensional tunneling](tunneling.md).
 

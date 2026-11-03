@@ -9,7 +9,7 @@ from typing import Any
 
 project = "pyvtst"
 author = "Emilian Roșca"
-copyright = "%Y, Emilian Roșca"
+copyright = "2025, PyVTST Developers"
 release = _version("pyvtst")
 version = ".".join(release.split(".")[:2])
 

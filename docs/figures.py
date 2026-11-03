@@ -654,6 +654,126 @@ def free_energy(mode: str) -> go.Figure:
     return go.Figure(traces, layout)
 
 
+# --- States below the adiabatic barrier ----------------------------------------
+
+
+def threshold(mode: str) -> go.Figure:
+    """V_a^G(s) and the level ladders of two generalized transition states.
+
+    One transverse vibration (400 cm⁻¹) stands in for all the states of a
+    generalized transition state. Its levels start at V_a^G(s), which already
+    holds the zero-point energy. Levels below V^AG cannot cross the barrier.
+    """
+    t = THEMES[mode]
+    v_top = 30.0  # kJ/mol
+    width = 0.6  # bohr
+    spacing = 400.0 * constants.h * constants.c * 100 * constants.N_A / 1e3  # kJ/mol
+    e_max = 46.0
+    s = np.linspace(-2.0, 2.0, 401)
+    v_ag = v_top / np.cosh(s / width) ** 2
+    curve = go.Scatter(
+        x=s,
+        y=v_ag,
+        mode="lines",
+        line={"color": t["series"][1], "width": 2.5},
+        hovertemplate="V<sub>a</sub><sup>G</sup> = %{y:.1f} kJ/mol<extra></extra>",
+    )
+    half = 0.16
+    above: tuple[list[float | None], list[float | None]] = ([], [])
+    below: tuple[list[float | None], list[float | None]] = ([], [])
+    notes: list[dict[str, object]] = []
+    for s0 in (-1.0, 0.0):
+        v0 = float(v_top / np.cosh(s0 / width) ** 2)
+        n_below = 0
+        for n in range(int((e_max - v0) / spacing) + 1):
+            e = v0 + n * spacing
+            xs, ys = (above if e >= v_top - 1e-9 else below)
+            xs.extend([s0 - half, s0 + half, None])
+            ys.extend([e, e, None])
+            n_below += e < v_top - 1e-9
+        if n_below:
+            notes.append(
+                _label(
+                    s0 - half - 0.05,
+                    v0 + 0.5 * (n_below - 1) * spacing,
+                    "Below V<sup>AG</sup>:<br>cannot react",
+                    mode,
+                    True,
+                    xanchor="right",
+                    align="right",
+                )
+            )
+        notes.append(
+            _label(
+                s0,
+                e_max + 0.5,
+                f"s = {s0:g} bohr",
+                mode,
+                True,
+                yanchor="bottom",
+            )
+        )
+    level_hover = "E = %{y:.1f} kJ/mol"
+    reacting = go.Scatter(
+        x=above[0],
+        y=above[1],
+        mode="lines",
+        line={"color": t["series"][0], "width": 3},
+        hovertemplate=level_hover + ", can react<extra></extra>",
+    )
+    blocked = go.Scatter(
+        x=below[0],
+        y=below[1],
+        mode="lines",
+        line={"color": t["muted"], "width": 3, "dash": "dot"},
+        hovertemplate=level_hover + ", below V<sup>AG</sup><extra></extra>",
+    )
+    top_line = {
+        "type": "line",
+        "x0": 0,
+        "x1": 1,
+        "xref": "paper",
+        "y0": v_top,
+        "y1": v_top,
+        "line": {"color": t["muted"], "width": 1, "dash": "dash"},
+    }
+    layout = _layout(
+        mode,
+        height=420,
+        hovermode="closest",
+        xaxis={
+            "title": {"text": "Reaction coordinate s (bohr)"},
+            "range": [-2.0, 2.0],
+            "showgrid": False,
+        },
+        yaxis={
+            "title": {"text": "Energy (kJ/mol)"},
+            "range": [0, e_max + 4],
+        },
+        shapes=[top_line],
+        annotations=[
+            *notes,
+            _label(
+                1.95,
+                v_top + 0.5,
+                "V<sup>AG</sup> = E<sub>th</sub>",
+                mode,
+                xanchor="right",
+                yanchor="bottom",
+            ),
+            _label(
+                0.9,
+                float(v_top / np.cosh(0.9 / width) ** 2) + 1.0,
+                "V<sub>a</sub><sup>G</sup>(s)",
+                mode,
+                xanchor="left",
+                yanchor="bottom",
+            ),
+        ],
+    )
+    return go.Figure([curve, blocked, reacting], layout)
+
+
 # --- Arrhenius plot with tunneling ---------------------------------------------
 
 
@@ -718,6 +838,7 @@ FIGURES: dict[str, Callable[[str], go.Figure]] = {
     "pes": pes,
     "boltzmann": boltzmann,
     "free_energy": free_energy,
+    "threshold": threshold,
     "arrhenius": arrhenius,
 }
 

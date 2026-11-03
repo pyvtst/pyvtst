@@ -1,12 +1,30 @@
 # Reaction path
 
 [Transition state theory](tst.md) needs only the reactants and the saddle
-point. [Variational TST](cvt.md) and
+point. [Variational transition state theory](cvt.md) and
 [multidimensional tunneling](tunneling.md) need more: the whole valley that
-leads over the barrier. This page explains the reaction path PyVTST traces,
-then how it computes it.
+leads over the barrier. This page shows how to compute the reaction path,
+then explains the theory, then how PyVTST traces it.
 
-## The minimum-energy path
+## Using it
+
+With `rxn` from the [Quickstart](../quickstart.md):
+
+```python
+path = rxn.compute_mep(s_min=-0.5, s_max=0.5)  # bohr; these are the defaults
+print(path.table())  # s, V_MEP, V_a^G, ZPE (kcal/mol)
+```
+
+Every point is stored as soon as it is computed, so a repeated call is free
+and wider limits compute only the new points. `rates()` with a variational
+theory or with ZCT/SCT tunneling calls `compute_mep()` itself, or takes a
+path you pass with `path=`. To change the step method, the step size or the
+coordinates of the generalized frequencies, see
+[More options](#more-options).
+
+## Theory
+
+### The minimum-energy path
 
 The **minimum-energy path** (MEP) leaves the saddle point downhill on both
 sides, always in the direction of steepest descent, until it reaches the
@@ -39,7 +57,7 @@ $s < 0$ on the reactant side. At the saddle point the gradient vanishes, so
 the path starts along the **transition vector**, the normal mode of the
 imaginary frequency.
 
-## Along the path
+### Along the path
 
 At each point the energy is $V_\mathrm{MEP}(s)$, measured from the
 reactants. The motions at right angles to the path are vibrations, like those
@@ -71,7 +89,7 @@ H₂ stretch) far out, falling to 2161 cm⁻¹ at the saddle point, where the bo
 being broken and the one being formed share it. The lost zero-point energy
 lowers the barrier, and $V_a^G$ peaks on either side of the saddle point, not
 at it: one reason the bottleneck of a reaction can lie away from the saddle
-point, which [Variational TST](cvt.md) accounts for. Only the collinear
+point, which [variational transition state theory](cvt.md) accounts for. Only the collinear
 vibration is included; the two bends of the real three-dimensional system
 would add zero-point energy near the saddle point.*
 
@@ -188,7 +206,7 @@ coordinates that involve them with internals=
 ```
 
 Add a coordinate on those atoms with `internals=`; see
-[Using it](#using-it). PyVTST never falls back to Cartesian coordinates on
+[More options](#more-options). PyVTST never falls back to Cartesian coordinates on
 its own.
 
 ### 5. Zero-point energy and curvature
@@ -218,14 +236,7 @@ only the new points, and a repeated call is free. A different `method`, `ds`,
 `internals` makes no engine calls: the frequencies are recomputed from the
 stored Hessians. See [Caching and restarts](caching.md#restarts).
 
-## Using it
-
-With `rxn` from the [Quickstart](../quickstart.md):
-
-```python
-path = rxn.compute_mep(s_min=-0.5, s_max=0.5)  # bohr
-print(path.table())
-```
+## More options
 
 `path.s`, `path.v_mep`, `path.v_ag` and `path.zpe` are numpy arrays, one value
 per point, in bohr and hartree. `path.frequencies` holds the generalized

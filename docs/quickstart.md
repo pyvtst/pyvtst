@@ -78,6 +78,6 @@ result = rxn.rates([200, 300, 500], theory="cvt", tunneling="sct", path=path)
 print(result.table())
 ```
 
-See [Variational TST](user/cvt.md),
+See [Variational transition state theory](user/cvt.md),
 [Multidimensional tunneling](user/tunneling.md) and
 [Frequency scale factors](user/scaling.md).
