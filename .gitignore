@@ -9,3 +9,6 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
+docs/_build/
+docs/_autosummary/
+docs/_generated/

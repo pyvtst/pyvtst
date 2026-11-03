@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/logo.svg" alt="PyVTST" width="400">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/_static/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/_static/logo-light.svg">
+    <img src="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/logo.svg" alt="PyVTST" width="400">
+  </picture>
 </p>
 
 <p align="center">
@@ -12,15 +16,19 @@
   <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-mypy%20strict-blue" alt="mypy strict"></a>
 </p>
 
-Thermal rate constants for gas-phase chemical reactions from conventional and
-variational transition state theory, with tunneling corrections.
+PyVTST computes thermal rate constants for gas-phase chemical reactions from
+conventional and variational transition state theory: TST, and canonical,
+improved canonical and microcanonical variational TST (CVT, ICVT and µVT),
+with Wigner, Eckart, zero-curvature and small-curvature tunneling corrections.
+It optimizes the stationary points, traces the minimum-energy path and
+evaluates the rate constants from energies, gradients and Hessians computed
+with PySCF.
 
-> **Status: pre-alpha.** Conventional TST and canonical, improved canonical and
-> microcanonical variational TST rate constants with Wigner, Eckart,
-> zero-curvature and small-curvature tunneling, and minimum-energy paths, are
-> available.
+> **Status: pre-alpha.** The API may change between releases.
 
-## Installation
+## Getting started
+
+### Installing PyVTST
 
 ```bash
 pip install pyvtst              # numpy and scipy only
@@ -32,12 +40,12 @@ pip install "pyvtst[hdf5]"      # + result caching in HDF5 files
 pip install "pyvtst[plot]"      # + path and free-energy plots with matplotlib
 ```
 
-## Quick start
+### Using PyVTST
 
 `Reaction` takes geometry guesses for the reactants and the transition state,
 re-optimizes them at the engine's level of theory, checks that the transition
-state has exactly one imaginary frequency, and computes conventional TST rate
-constants. This example needs the `pyscf`, `geometric` and `hdf5` extras.
+state has exactly one imaginary frequency, and computes rate constants. This
+example needs the `pyscf`, `geometric` and `hdf5` extras.
 
 ```python
 from pyvtst import Molecule, Reaction
@@ -57,421 +65,24 @@ result = rxn.rates([300, 500, 1000], tunneling="eckart")
 print(result.table())
 ```
 
-`rates(T, theory="tst", tunneling=None)` accepts `theory="tst"` or `"cvt"`
-(see [Variational TST](#variational-tst)) and `tunneling=None`, `"wigner"`,
-`"eckart"`, `"zct"` or `"sct"` (see
-[Multidimensional tunneling](#multidimensional-tunneling)). Eckart uses an asymmetric barrier when `products=` are given to
-`Reaction` and a symmetric one otherwise. Unimolecular rate constants are in
-s⁻¹ and bimolecular ones in cm³ molecule⁻¹ s⁻¹. `result.k`, `result.k_tst` and
-`result.kappa` are numpy arrays, one value per temperature.
+`theory` is `"tst"` or `"cvt"`; `tunneling` is `None`, `"wigner"`, `"eckart"`,
+`"zct"` or `"sct"`. Geometries are in bohr. The
+[user guide](https://github.com/pyvtst/pyvtst/blob/main/docs/user/index.md) covers
+molecules, engines, caching, reaction paths, variational TST, tunneling and
+frequency scale factors.
 
-Reaction-path degeneracy comes only from each molecule's `symmetry_number`,
-so set it on reactants and transition state. Partition functions use the rigid
-rotor and harmonic oscillator; thermochemistry from
-`pyvtst.core.partition.thermo` uses the 1 bar standard state.
+## Citation
 
-## Usage
+If you use PyVTST in your research, please cite it:
 
-### Molecules
-
-pyvtst stores geometries in bohr and masses in amu (most abundant isotope by
-default).
-
-```python
-from pyvtst import Molecule
-from pyvtst.io import from_ase, from_smiles, read_xyz, to_ase, write_xyz
-
-water = read_xyz("water.xyz")
-methyl = from_smiles("[CH3]")  # multiplicity 2 inferred
-h_atom = read_xyz("h.xyz", mult=2)
-write_xyz(water, "water_out.xyz")
-atoms = to_ase(water)  # and from_ase(atoms)
-
-h2 = Molecule(["H", "H"], [[0.0, 0.0, 0.0], [0.0, 0.0, 1.4]])  # bohr
+```bibtex
+@software{rosca_pyvtst,
+  author  = {Roșca, Emilian},
+  title   = {{PyVTST}: variational transition state theory in Python},
+  url     = {https://github.com/pyvtst/pyvtst},
+  version = {0.1.0},
+  year    = {2026},
+}
 ```
 
-Unit conversion factors live in `pyvtst.units`, derived from the CODATA
-values shipped with SciPy:
-
-```python
-from pyvtst.units import BOHR_TO_ANGSTROM, HARTREE_TO_KCAL_PER_MOL
-```
-
-### Energies with PySCF
-
-`PySCFEngine` computes energies, gradients and Hessians with HF, MP2 or any
-DFT functional PySCF knows. It needs the `pyscf` extra. All results are in
-atomic units.
-
-```python
-from pyvtst import Molecule
-from pyvtst.engines import PySCFEngine
-
-water = Molecule(
-    ["O", "H", "H"],
-    [[0.0, 0.0, 0.22], [0.0, 1.43, -0.89], [0.0, -1.43, -0.89]],  # bohr
-)
-engine = PySCFEngine("B3LYP", "def2-SVP")
-
-engine.energy(water)  # hartree
-engine.gradient(water)  # hartree/bohr, shape (3, 3)
-engine.hessian(water)  # hartree/bohr², shape (9, 9), not mass-weighted
-```
-
-The molecule's charge and multiplicity are used as given. Singlets get a
-restricted reference and everything else an unrestricted one:
-
-```python
-hydroxyl = Molecule(["O", "H"], [[0.0, 0.0, 0.0], [0.0, 0.0, 1.83]], mult=2)
-PySCFEngine("MP2", "cc-pVDZ").energy(hydroxyl)  # UHF-based MP2
-```
-
-Keyword options:
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `reference` | `"auto"` | `"restricted"` or `"unrestricted"` to override the choice above |
-| `hessian` | `"auto"` | Analytic for HF and DFT, finite differences of gradients for MP2; `"analytic"` or `"fd"` to force |
-| `fd_step` | `5e-3` | Finite-difference step in bohr |
-| `conv_tol` | `1e-10` | SCF energy convergence threshold in hartree |
-| `grid_level` | `3` | DFT integration grid level |
-| `max_cycle` | `50` | Maximum SCF iterations |
-| `max_memory_mb` | `None` | Memory budget for PySCF; `None` uses PySCF's default |
-| `verbose` | `False` | Print PySCF's output |
-
-PySCF keeps integrals in memory when they fit its budget, so keep it below the
-RAM you have. Set it once with the `PYSCF_MAX_MEMORY` environment variable,
-or per engine with `max_memory_mb`.
-
-Each call runs a fresh SCF. A failed SCF raises `pyvtst.ports.EngineError`; a
-basis set that lacks an element raises `ValueError`.
-
-`engine.level.key()` is a string identifying the settings that change a
-result, for use as a cache key. `max_cycle`, `max_memory_mb` and `verbose` are
-not part of it.
-
-### Caching
-
-Optimizations, energies, gradients and Hessians are cached, so a repeated
-call costs nothing. With `Reaction`, pass `store=`:
-
-- omitted: results are kept in memory for the life of the `Reaction`;
-- a path such as `"h3.h5"`: results are kept in an HDF5 file (needs the
-  `hdf5` extra), and a later session with the same inputs reuses all of them;
-- a store object from `pyvtst.stores` (`MemoryStore`, `HDF5Store`).
-
-`CachedEngine` is for scripts that call engines or optimizers directly:
-
-```python
-from pyvtst.engines import CachedEngine, PySCFEngine
-from pyvtst.stores import HDF5Store
-
-engine = CachedEngine(PySCFEngine("B3LYP", "def2-SVP"), HDF5Store("results.h5"))
-engine.hessian(h2)  # computed once, then read from results.h5
-```
-
-A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
-its own store, and the `Reaction`'s optimized geometries go to `store=`.
-
-Results are keyed by the level of theory and by the engine, so two programs
-that name the same method and basis never share optimizations, path points or
-energies. The engine is identified by its class name; pass
-`CachedEngine(engine, store, engine_id=...)` to keep a cache across a class
-rename.
-
-### Reaction path
-
-`compute_mep()` traces the minimum-energy path (MEP) through the transition
-state, optimizing first if needed. With `rxn` from the quick start:
-
-```python
-path = rxn.compute_mep(s_min=-0.5, s_max=0.5)  # bohr
-print(path.table())
-```
-
-s is the arc length in mass-scaled coordinates with a scaling mass of 1 amu,
-so it is in bohr, with s = 0 at the transition state and s < 0 on the reactant
-side. `path.s`, `path.v_mep`, `path.v_ag` and `path.zpe` are numpy arrays, one
-value per point. V_MEP is the energy relative to the reactants and V_a^G adds
-the generalized zero-point energy, relative to the reactants' zero-point
-level, both in hartree. `path.frequencies` holds the generalized frequencies
-(cm⁻¹) at each point with a Hessian: translations, rotations and the path
-direction are projected out. They are curvilinear by default; see
-[Coordinates of the generalized frequencies](#coordinates-of-the-generalized-frequencies).
-
-| `method` | Default `ds` | Hessians |
-| --- | --- | --- |
-| `"lqa"` (default) | 0.01 bohr | At every point (Page–McIver local quadratic approximation) |
-| `"euler"` | 0.001 bohr | Every `hessian_every` points, default 10 (steepest descent from gradients) |
-
-With PySCF a Hessian costs far more than a gradient. The default LQA path
-from −0.5 to 0.5 bohr needs 100 Hessians. Euler at its defaults also computes
-one Hessian every 0.01 bohr, plus ten times as many gradients; raise
-`hessian_every` when Hessians are expensive. V_a^G and the frequencies exist
-only at points with a Hessian.
-
-Every point goes to the `Reaction`'s store as soon as it is computed. An
-interrupted `compute_mep()` resumes from the last stored point, wider limits
-compute only the new points, and a repeated call is free. A different
-`method`, `ds`, `hessian_every` or engine starts a new path.
-
-Which side is s < 0 is decided from geometry, so list the transition state's
-atoms in the same order as the reactants' atoms concatenated (and the
-products', if given), with the same elements and masses. Otherwise the path
-is still computed, `path.oriented` is false, and a warning says the sign of s
-is arbitrary. A side that stops before its limit, at a minimum or because the
-next step would go uphill (try a smaller `ds`), gives a warning;
-`path.stop_reactant` and `path.stop_product` say why each side stopped.
-
-#### Coordinates of the generalized frequencies
-
-`coordinates=` sets how the generalized frequencies are computed:
-
-| `coordinates` | Generalized frequencies |
-| --- | --- |
-| `"redundant"` (default) | Curvilinear, in redundant internal coordinates (Jackels, Gu and Truhlar, *J. Chem. Phys.* 102, 3188 (1995); Chuang and Truhlar, *J. Phys. Chem. A* 102, 242 (1998)) |
-| `"cartesian"` | Rectilinear, from the projected Cartesian Hessian |
-
-Away from the transition state the Cartesian Hessian includes the gradient
-times the curvature of straight-line motion. On curved paths that term turns
-real bends imaginary, and V_a^G gets kinks where they drop out of the
-zero-point energy. Internal coordinates bend with the molecule, so the term is
-removed. Both give the same frequencies at the transition state. Away from
-it, curvilinear frequencies depend on the set of internal coordinates, since
-the set decides which motions count as curvilinear. When a Cartesian path has
-large imaginary frequencies, the warning that lists them suggests
-`coordinates="redundant"`.
-
-By default the internal coordinates are generated from the optimized
-transition state. Atoms closer than 1.3 times the sum of their covalent radii
-are bonded, and separate fragments are bonded through their closest atoms.
-Every two bonds on one atom give an angle, or a linear bend from 170°, and
-every chain of three bonds gives a torsion. `path.internals` records the set,
-and the same set is used at every point. To choose your own, pass tuples with
-atom indices in the transition state's order:
-
-```python
-path = rxn.compute_mep(
-    internals=[
-        ("bond", 0, 1),
-        ("bond", 1, 2),
-        ("linear_bend", 0, 1, 2),  # two components, smooth through 180°
-    ]
-)
-```
-
-The kinds are `("bond", i, j)`, `("angle", i, j, k)` with apex j,
-`("linear_bend", i, j, k)` with middle atom j and `("torsion", i, j, k, l)`
-about the j–k bond. Redundant sets are fine. The set must span every internal
-motion, which is checked at the transition state before tracing and again at
-every point with a Hessian. When it does not, `compute_mep()` raises a
-`ValueError` that says how many directions are missing, where, and which atoms
-move most in them:
-
-```text
-internal coordinates span 2 of 4 internal directions at the transition state;
-2 directions are missing, moving mostly atoms 1 (H), 2 (H), 0 (H); add
-coordinates that involve them with internals=
-```
-
-Add a coordinate on those atoms: an angle, a linear bend for a nearly
-collinear group, or a torsion. pyvtst never falls back to Cartesian
-coordinates on its own.
-
-The coordinates do not change the path, only the frequencies computed from
-its stored Hessians, so switching makes no engine calls:
-
-```python
-cartesian = rxn.compute_mep(coordinates="cartesian")
-```
-
-`plot_path` and `plot_paths` (with the `plot` extra) draw V_MEP as a solid
-line and V_a^G as a dashed one, mark the transition state and return the
-matplotlib `Axes`. Paths from different methods, step sizes or engines share
-one axis, one color per path:
-
-```python
-from pyvtst import plot_path, plot_paths
-
-ax = plot_path(path)
-ax.figure.savefig("h3_mep.png")
-
-euler = rxn.compute_mep(method="euler")
-ax = plot_paths([path, euler], labels=["LQA", "Euler"], units="kJ/mol")
-```
-
-### Variational TST
-
-`theory="cvt"` gives canonical variational TST rate constants. At each
-temperature the dividing surface is placed where the generalized TST rate
-k^GT(T, s) along the MEP is lowest, which is where the generalized free energy
-of activation is highest, at the variational transition state s*(T):
-
-```python
-result = rxn.rates([300, 500, 1000], theory="cvt", tunneling="wigner")
-print(result.table())  # T, s*, k_TST, k_CVT, kappa, k
-print(result.cvt.s_star, result.cvt.k / result.k_tst)
-```
-
-Without `path=`, `rates` runs `compute_mep()` with its defaults (s from −0.5
-to 0.5 bohr), which is free once that path is stored. Pass a path for a wider
-range, another step size or other coordinates:
-
-```python
-path = rxn.compute_mep(s_min=-1.0, s_max=1.0)
-result = rxn.rates([300, 500, 1000], theory="cvt", path=path)
-```
-
-`result.k_tst` stays the conventional TST rate, so `result.cvt.k /
-result.k_tst` is the variational effect, at most 1. `result.cvt` also holds
-the path points used (`s`), k^GT(T, s) (`k_gt`) and ΔG^GT,°(T, s) at the 1 bar
-standard state (`delta_g`, hartree). Between path points s* is refined with a
-parabola through the three points around the lowest k^GT. The symmetry number
-of the transition state is used at every s. Wigner and Eckart κ(T) are the
-saddle-point values in both theories; ZCT and SCT follow the path.
-
-When s* falls on the first or last usable point of the path at some
-temperature, a warning names the temperatures and the side: the bottleneck may
-lie beyond the path, so compute a wider one and pass it with `path=`. Points
-with imaginary generalized frequencies above the transition state's threshold
-are left out of the search, with a warning.
-
-`plot_free_energy` (with the `plot` extra) draws ΔG^GT,°(T, s) against s, one
-curve per temperature, with s*(T) marked:
-
-```python
-from pyvtst import plot_free_energy
-
-ax = plot_free_energy(result, units="kJ/mol")
-ax.figure.savefig("h3_cvt.png")
-```
-
-#### ICVT and µVT
-
-CVT counts every state of the generalized transition state, including those
-below the top V^AG of the vibrationally adiabatic barrier, which cannot react.
-Two theories leave them out. Both start from the threshold energy E_th, which
-is V^AG or, if higher, the reactants' or products' zero-point level:
-
-- `theory="icvt"` (improved CVT) multiplies k^GT(T, s) by the Boltzmann-weighted
-  fraction F(T, s) of the point's states at or above E_th, then takes the
-  minimum over s as CVT does.
-- `theory="muvt"` (microcanonical variational TST) finds the bottleneck
-  separately at each energy E ≥ E_th, where the sum of states
-  N^GT(E − V_a^G(s), s) is lowest, then averages over a Boltzmann distribution.
-
-```python
-icvt = rxn.rates([200, 300, 500], theory="icvt", path=path)
-muvt = rxn.rates([200, 300, 500], theory="muvt", path=path)
-print(icvt.table())  # T, s*, k_TST, k_ICVT, kappa, k
-print(muvt.table())  # T, k_TST, k_muVT, kappa, k
-print(icvt.icvt.f, muvt.muvt.s_star)  # F(T, s); s*(E) on muvt.muvt.energies
-```
-
-k^µVT ≤ k^ICVT ≤ k^CVT. The difference matters at low temperature and when s*
-moves away from the V_a^G maximum. Sums of states count the harmonic
-vibrations exactly on a 1 cm⁻¹ grid, convolved with the same classical rigid
-rotor as the partition functions, so ICVT equals CVT wherever V_a^G(s*) = E_th.
-µVT warns when more than 1 % of its rate comes from energies whose bottleneck
-is an end of the path.
-
-References: B. C. Garrett and D. G. Truhlar, *J. Phys. Chem.* 83, 1079 (1979);
-B. C. Garrett, D. G. Truhlar, R. S. Grev and A. W. Magnuson, *J. Phys. Chem.*
-84, 1730 (1980).
-
-### Multidimensional tunneling
-
-`tunneling="zct"` (zero-curvature) and `"sct"` (small-curvature) compute κ(T)
-along the minimum-energy path rather than from the saddle point alone. The
-barrier is the vibrationally adiabatic ground-state curve V_a^G(s), and the
-transmission probability P(E) is the uniform semiclassical one through it. SCT
-also lets the tunneling path cut the corner of a curved reaction path, through
-an effective mass μ_eff(s) ≤ μ computed from the path's curvature
-(`path.curvature`, from `compute_mep()`), so κ^SCT ≥ κ^ZCT. Both work with
-any theory:
-
-```python
-path = rxn.compute_mep(s_min=-2.0, s_max=2.0)
-tst_sct = rxn.rates([200, 300, 500], tunneling="sct", path=path)
-cvt_sct = rxn.rates([200, 300, 500], theory="cvt", tunneling="sct", path=path)
-print(cvt_sct.table())
-print(cvt_sct.path_tunneling.e0, cvt_sct.path_tunneling.kappa_cag)
-```
-
-κ includes the classical adiabatic ground-state (CAG) factor
-exp(−[V^AG − V_a^G(s_ref)]/k_B T), which refers it to the rate theory it
-multiplies: s_ref = 0 for TST and s*(T) for CVT. ICVT and µVT already use
-V^AG as their threshold, so for them the CAG factor is 1. That gives TST/ZCT,
-CVT/SCT, ICVT/SCT, µVT/SCT and so on, as reported in the literature. `result.path_tunneling`
-holds E₀, the maximum V^AG and its s, the CAG factor, V_a^G and μ_eff/μ at the
-path points, and P(E).
-
-Tunneling starts at E₀, the higher of the reactants' and products' zero-point
-levels, so the path must reach down to it on both sides. The default path
-(±0.5 bohr) rarely does. When an end of the path lies above E₀, E₀ is raised to
-it and a warning names the side and the gap: κ is then too low at low
-temperature, so compute a wider path, as above, and pass it with `path=`.
-Wider limits reuse the stored points. Give `products=` to `Reaction` so the
-product side has a zero-point level to reach.
-
-References: A. Fernández-Ramos, B. A. Ellingson, B. C. Garrett and
-D. G. Truhlar, *Rev. Comput. Chem.* 23, 125 (2007); for the SCT effective
-mass, Y.-P. Liu, G. C. Lynch, T. N. Truong, D.-h. Lu, D. G. Truhlar and
-B. C. Garrett, *J. Am. Chem. Soc.* 115, 2408 (1993).
-
-### Frequency scale factors
-
-Harmonic frequencies from HF, DFT and MP2 are systematically too high, and the
-error reaches the rate constant through the ZPE-corrected barrier, in the
-exponent. `freq_scale` multiplies every frequency by one empirical factor:
-
-```python
-engine = PySCFEngine("B3LYP", "def2-SVP")
-# Look up the ZPE factor for your method and basis; 0.97 is only a placeholder.
-rxn = Reaction([h2, h], h3_guess, engine, store="h3.h5", freq_scale=0.97)
-result = rxn.rates([300, 500, 1000], theory="cvt", tunneling="eckart")
-```
-
-The factor scales the harmonic frequencies of every species and the
-generalized frequencies along the path, imaginary ones included, after
-diagonalization. ZPEs, partition functions, V_a^G(s), the TST and CVT rate
-constants, and the imaginary frequency used by Wigner and Eckart therefore
-all use scaled values. Normal modes, geometries and the path itself do not
-change. The factor is recorded as `freq_scale` on each `StationaryPoint` and
-`ReactionPath`. `rates(..., path=p)` rejects a path computed with another
-factor.
-
-Published factors depend on the property they were fitted to (ZPE,
-fundamentals, enthalpy or entropy). For rate constants use a ZPE scale factor
-for your method and basis, for example from I. M. Alecu, J. Zheng, Y. Zhao and
-D. G. Truhlar, *J. Chem. Theory Comput.* 6, 2872 (2010).
-
-The factor is not part of any cache key. A `Reaction` with another factor on
-the same store reuses every optimized geometry, Hessian and path point and
-makes no engine calls. The imaginary-frequency threshold (`imag_threshold`,
-50 cm⁻¹ by default) applies to the scaled frequencies, so a factor above 1 can
-turn a −48 cm⁻¹ noise mode into a counted imaginary frequency. If that
-happens, check the geometry or raise the threshold.
-
-`StationaryPoint.from_hessian` and `from_frequencies` take the same
-`freq_scale` argument. Keep the default 1.0 for published frequencies that are
-already scaled.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short, set up a
-development environment with [uv](https://docs.astral.sh/uv/) and run the same
-checks as CI:
-
-```bash
-uv sync --all-extras                    # dev tools + all optional adapters
-uv run pytest
-uv run ruff format --check && uv run ruff check
-uv run mypy                             # strict
-uv run lint-imports                     # architecture contracts
-uv run bandit -c pyproject.toml -r src
-```
-
-## License
-
-BSD-3-Clause. See [LICENSE](LICENSE).
+The same metadata is in [CITATION.cff](https://github.com/pyvtst/pyvtst/blob/main/CITATION.cff).

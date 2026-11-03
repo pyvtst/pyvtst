@@ -238,7 +238,7 @@ def sct_effective_mass(
 ) -> FloatArray:
     """Centrifugal-dominant small-curvature effective mass μ_eff/μ.
 
-    μ_eff/μ = min{exp[-2ā - ā² + (dt̄/ds)²], 1}, with ā = |κ t̄|, κ the total
+    μ_eff/μ = min{exp[-2ā - ā² + (dt̄/ds)²], 1}, with ``ā = |κ t̄|``, κ the total
     curvature, t̄ = [Σ (κ_m/κ)² t_m⁻⁴]^(-1/4) and t_m = (ħ/μ ω_m)^(1/2) the
     ground-state turning point of mode m (frequency magnitudes are used).
     ā and t̄ are not-a-knot cubic splines through the given points, so the
