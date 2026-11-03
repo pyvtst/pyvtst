@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-authors = [{ name = "Emilian R" }]
+authors = [{ name = "Emilian Roșca" }]
 keywords = ["chemistry", "kinetics", "transition state theory", "VTST", "tunneling"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
