@@ -4,6 +4,8 @@ Canonical variational TST (CVT) places the dividing surface, at each
 temperature, where the generalized TST rate along the minimum-energy path is
 lowest: B. C. Garrett and D. G. Truhlar, J. Phys. Chem. 83, 1052 (1979);
 D. G. Truhlar and B. C. Garrett, Acc. Chem. Res. 13, 440 (1980).
+Improved canonical and microcanonical variational TST, which leave out the
+states below the adiabatic threshold, are in :mod:`pyvtst.core.variational`.
 """
 
 from __future__ import annotations
@@ -212,23 +214,8 @@ def cvt_rate(
     """
     reactants, t = _check_reactants(reactants, T)
     n = len(reactants)
-    s, ln_si = _generalized_si(reactants, path, t, imag_threshold)
-    s_star = np.empty_like(t)
-    ln_star = np.empty_like(t)
-    at_end: dict[int, list[float]] = {0: [], s.size - 1: []}
-    for j, row in enumerate(ln_si):
-        i = int(np.argmin(row))
-        s_star[j], ln_star[j] = s[i], row[i]
-        if 0 < i < s.size - 1:
-            vertex = _parabola_minimum(s[i - 1 : i + 2], row[i - 1 : i + 2])
-            if vertex is not None:
-                s_star[j], ln_star[j] = vertex
-        for end, temps in at_end.items():
-            if i == end:
-                temps.append(float(t[j]))
-    for end, temps in at_end.items():
-        if temps:
-            _warn_at_end(path, s, end, temps)
+    s, ln_si, _ = _generalized_si(reactants, path, t, imag_threshold, "CVT")
+    s_star, ln_star = _variational_minimum(s, ln_si, t, path, "CVT")
 
     delta_g = _delta_g(ln_si, t[:, None], n)
     delta_g_star = _delta_g(ln_star, t, n)
@@ -316,23 +303,58 @@ def point_zpe(frequencies: FloatArray) -> float:
     return float(0.5 * np.sum(np.sort(np.abs(frequencies))) * CM1_TO_HARTREE)
 
 
+def _variational_minimum(
+    s: FloatArray,
+    ln_rows: FloatArray,
+    t: FloatArray,
+    path: ReactionPath,
+    label: str,
+) -> tuple[FloatArray, FloatArray]:
+    """s* and the minimum of each row of ln k over s, refined by a parabola.
+
+    A minimum at a point with a neighbour on each side is refined by the
+    parabola through the three points when it has a minimum between them. A
+    minimum at the first or last point gives one warning per end, starting
+    with ``label``.
+    """
+    s_star = np.empty_like(t)
+    ln_star = np.empty_like(t)
+    at_end: dict[int, list[float]] = {0: [], s.size - 1: []}
+    for j, row in enumerate(ln_rows):
+        i = int(np.argmin(row))
+        s_star[j], ln_star[j] = s[i], row[i]
+        if 0 < i < s.size - 1:
+            vertex = _parabola_minimum(s[i - 1 : i + 2], row[i - 1 : i + 2])
+            if vertex is not None:
+                s_star[j], ln_star[j] = vertex
+        for end, temps in at_end.items():
+            if i == end:
+                temps.append(float(t[j]))
+    for end, temps in at_end.items():
+        if temps:
+            _warn_at_end(path, s, end, temps, label)
+    return s_star, ln_star
+
+
 def _generalized_si(
     reactants: tuple[StationaryPoint, ...],
     path: ReactionPath,
     t: FloatArray,
     imag_threshold: float,
-) -> tuple[FloatArray, FloatArray]:
-    """s and ln k^GT in molecule-based SI units at the usable points."""
+    label: str,
+) -> tuple[FloatArray, FloatArray, list[int]]:
+    """s, ln k^GT in molecule-based SI units, and indices of the usable points."""
     reference = sum(zpe_energy(sp) for sp in reactants)
     usable = usable_points(
         path,
         imag_threshold,
-        warn=("CVT", "the variational search"),
+        warn=(label, "the variational search"),
         stacklevel=3,
     )
     if not usable:
         raise ValueError(
-            "path: no point has usable generalized frequencies; CVT needs at least one"
+            "path: no point has usable generalized frequencies; "
+            f"{label} needs at least one"
         )
     columns: list[FloatArray] = []
     for i in usable:
@@ -347,7 +369,7 @@ def _generalized_si(
         )
         barrier = (float(path.energies[i]) + point_zpe(freqs)) - reference
         columns.append(_ln_rate_si(ln_q, barrier, reactants, t))
-    return np.array(path.s[usable]), np.stack(columns, axis=1)
+    return np.array(path.s[usable]), np.stack(columns, axis=1), usable
 
 
 def _parabola_minimum(x: FloatArray, y: FloatArray) -> tuple[float, float] | None:
@@ -372,17 +394,17 @@ def path_end_name(path: ReactionPath, first: bool) -> str:
 
 
 def _warn_at_end(
-    path: ReactionPath, s: FloatArray, end: int, temps: list[float]
+    path: ReactionPath, s: FloatArray, end: int, temps: list[float], label: str
 ) -> None:
     first = end == 0
     side = path_end_name(path, first)
     listed = ", ".join(f"{v:g}" for v in temps)
     warnings.warn(
-        f"CVT: at T = {listed} K the generalized rate is lowest at the "
+        f"{label}: at T = {listed} K the generalized rate is lowest at the "
         f"{'first' if first else 'last'} usable path point, on the {side} "
         f"(s = {s[end]:+.4f} bohr); the variational transition state may lie "
         "beyond the path, widen its s range",
-        stacklevel=3,
+        stacklevel=4,
     )
 
 

@@ -50,6 +50,7 @@ from pyvtst.core.stationary import (
 )
 from pyvtst.core.tunneling import eckart, wigner
 from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL
+from pyvtst.core.variational import ICVTResult, MuVTResult, icvt_rate, muvt_rate
 from pyvtst.core.vib import (
     curvilinear_generalized_modes,
     generalized_normal_modes,
@@ -66,7 +67,8 @@ from pyvtst.stores import open_store
 
 FloatArray = npt.NDArray[np.float64]
 
-THEORIES = ("tst", "cvt")
+THEORIES = ("tst", "cvt", "icvt", "muvt")
+VARIATIONAL = ("cvt", "icvt", "muvt")
 TUNNELING = (None, "wigner", "eckart", "zct", "sct")
 PATH_TUNNELING = ("zct", "sct")
 
@@ -101,19 +103,27 @@ class RateResult:
     Attributes:
         T: Temperatures in kelvin.
         k: Rate constants of ``theory`` including tunneling: ``k_tst * kappa``
-            for ``"tst"``, ``cvt.k * kappa`` for ``"cvt"``.
-        k_tst: Conventional TST rate constants without tunneling, for either
+            for ``"tst"``, and the variational rate constants (``cvt.k``,
+            ``icvt.k`` or ``muvt.k``) times ``kappa`` otherwise.
+        k_tst: Conventional TST rate constants without tunneling, for any
             theory, so ``cvt.k / k_tst`` is the variational effect.
         kappa: Tunneling transmission coefficients (all 1 without tunneling).
             For ``"zct"`` and ``"sct"``, ``path_tunneling.kappa``.
-        theory: The rate theory, ``"tst"`` or ``"cvt"``.
+        theory: The rate theory, ``"tst"``, ``"cvt"``, ``"icvt"`` or
+            ``"muvt"``.
         tunneling: The tunneling correction, or ``None``.
         units: Unit of ``k`` and ``k_tst``: ``"s^-1"`` or
             ``"cm^3 molecule^-1 s^-1"``.
         barrier_kcal: The ZPE-corrected barrier ΔE₀‡ in kcal/mol.
         cvt: For ``"cvt"``, the variational details: rate constants without
             tunneling, s*(T), the path points used, k^GT(T, s) and
-            ΔG^GT,°(T, s). ``None`` for ``"tst"``.
+            ΔG^GT,°(T, s). ``None`` for the other theories.
+        icvt: For ``"icvt"``, the ICVT details: rate constants without
+            tunneling, s*(T), the path points used, k^IGT(T, s), the fraction
+            F(T, s), E_th, V^AG and its s. ``None`` for the other theories.
+        muvt: For ``"muvt"``, the µVT details: rate constants without
+            tunneling, the energy grid, s*(E), the minimum sum of states,
+            E_th, V^AG and its s. ``None`` for the other theories.
         path_tunneling: For ``"zct"`` and ``"sct"``, the tunneling details:
             E₀, V^AG and its s, the CAG factor, V_a^G and μ_eff/μ along the
             path, and P(E). ``None`` for the other tunneling corrections.
@@ -131,32 +141,42 @@ class RateResult:
     barrier_kcal: float
     cvt: CVTResult | None = None
     path_tunneling: PathTunnelingResult | None = None
+    icvt: ICVTResult | None = None
+    muvt: MuVTResult | None = None
 
     def table(self) -> str:
         """Return a plain-text table, one row per T.
 
-        Columns T, k_TST, kappa and k; for CVT, T, s*, k_TST, k_CVT, kappa
-        and k.
+        Columns T, k_TST, kappa and k; for CVT and ICVT, T, s*, k_TST, k_CVT
+        or k_ICVT, kappa and k; for µVT, T, k_TST, k_muVT, kappa and k.
         """
         k_tst = f"k_TST ({self.units})"
-        k_cvt = f"k_CVT ({self.units})"
         k = f"k ({self.units})"
-        width = max(len(k_tst), 12)
-        cvt = self.cvt
+        s_star: FloatArray | None = None
+        k_var: FloatArray | None = None
+        name = ""
+        if self.cvt is not None:
+            s_star, k_var, name = self.cvt.s_star, self.cvt.k, "k_CVT"
+        elif self.icvt is not None:
+            s_star, k_var, name = self.icvt.s_star, self.icvt.k, "k_ICVT"
+        elif self.muvt is not None:
+            k_var, name = self.muvt.k, "k_muVT"
+        k_var_head = f"{name} ({self.units})"
+        width = max(len(k_tst), len(k_var_head) if k_var is not None else 0, 12)
         header = f"{'T (K)':>9}  "
-        if cvt is not None:
+        if s_star is not None:
             header += f"{'s* (bohr)':>9}  "
         header += f"{k_tst:>{width}}  "
-        if cvt is not None:
-            header += f"{k_cvt:>{width}}  "
+        if k_var is not None:
+            header += f"{k_var_head:>{width}}  "
         lines = [header + f"{'kappa':>10}  {k:>{width}}"]
         for i, t in enumerate(self.T):
             line = f"{float(t):>9.2f}  "
-            if cvt is not None:
-                line += f"{float(cvt.s_star[i]):>9.4f}  "
+            if s_star is not None:
+                line += f"{float(s_star[i]):>9.4f}  "
             line += f"{float(self.k_tst[i]):>{width}.4e}  "
-            if cvt is not None:
-                line += f"{float(cvt.k[i]):>{width}.4e}  "
+            if k_var is not None:
+                line += f"{float(k_var[i]):>{width}.4e}  "
             line += f"{float(self.kappa[i]):>10.4f}  {float(self.k[i]):>{width}.4e}"
             lines.append(line)
         return "\n".join(lines)
@@ -290,7 +310,7 @@ class Reaction:
     def rates(
         self,
         T: npt.ArrayLike,
-        theory: Literal["tst", "cvt"] | str = "tst",
+        theory: Literal["tst", "cvt", "icvt", "muvt"] | str = "tst",
         tunneling: Literal["wigner", "eckart", "zct", "sct"] | str | None = None,
         path: ReactionPath | None = None,
     ) -> RateResult:
@@ -298,48 +318,58 @@ class Reaction:
 
         Args:
             T: A temperature or array of temperatures in kelvin, all > 0.
-            theory: ``"tst"`` (conventional transition state theory) or
+            theory: ``"tst"`` (conventional transition state theory),
                 ``"cvt"`` (canonical variational TST along the minimum-energy
-                path).
+                path), ``"icvt"`` (improved CVT, which leaves out the states
+                below the adiabatic threshold) or ``"muvt"`` (microcanonical
+                variational TST). The threshold of ICVT and µVT is bounded from
+                below by the products' zero-point level when products were
+                given.
             tunneling: ``None``, ``"wigner"``, ``"eckart"``, ``"zct"``
                 (zero-curvature tunneling) or ``"sct"`` (small-curvature
                 tunneling). Wigner and Eckart are computed from the saddle
-                point for both theories, so with CVT they do not follow the
-                variational transition state. ZCT and SCT are computed along
-                the path, and refer κ to s = 0 for ``"tst"`` and to s*(T) for
-                ``"cvt"``.
-            path: For ``"cvt"``, ``"zct"`` or ``"sct"``, the path to use, from
+                point for every theory, so with the variational theories they
+                do not follow the variational transition state. ZCT and SCT
+                are computed along the path, and refer κ to s = 0 for
+                ``"tst"`` and to s*(T) for ``"cvt"``; for ``"icvt"`` and
+                ``"muvt"``, whose threshold is already V^AG, κ^CAG = 1.
+            path: For ``"cvt"``, ``"icvt"``, ``"muvt"``, ``"zct"`` or
+                ``"sct"``, the path to use, from
                 :meth:`compute_mep`. When ``None``, :meth:`compute_mep` runs
                 with its defaults (s from -0.5 to 0.5 bohr), which is free once
                 stored. Pass a path to use a wider s range, another step size
                 or other coordinates.
 
-        For CVT, a variational transition state at either end of the path
-        gives a warning that the path's s range should be widened. For ZCT and
-        SCT, a path that ends before V_a^G falls to the reactants' or
-        products' zero-point level gives a warning that κ is underestimated at
-        low temperature; the default path is usually that short, so pass a
-        wider one for accurate tunneling.
+        For the variational theories, a variational transition state at either
+        end of the path gives a warning that the path's s range should be
+        widened. For ZCT and SCT, a path that ends before V_a^G falls to the
+        reactants' or products' zero-point level gives a warning that κ is
+        underestimated at low temperature; the default path is usually that
+        short, so pass a wider one for accurate tunneling.
 
         Raises:
             ValueError: Unknown ``theory`` or ``tunneling``, invalid ``T``,
-                ``path`` given without ``theory="cvt"``, ``"zct"`` or ``"sct"``,
+                ``path`` given without a variational theory or ``"zct"`` or
+                ``"sct"`` tunneling,
                 or from another reaction or scale factor, an Eckart barrier
                 that is not positive in both directions, or an adiabatic
                 barrier that is not above the lowest tunneling energy.
         """
         if theory not in THEORIES:
-            raise ValueError(f"theory: expected 'tst' or 'cvt', got {theory!r}")
+            raise ValueError(
+                f"theory: expected 'tst', 'cvt', 'icvt' or 'muvt', got {theory!r}"
+            )
         if tunneling not in TUNNELING:
             raise ValueError(
                 "tunneling: expected None, 'wigner', 'eckart', 'zct' or 'sct', got "
                 f"{tunneling!r}"
             )
-        needs_path = theory == "cvt" or tunneling in PATH_TUNNELING
+        needs_path = theory in VARIATIONAL or tunneling in PATH_TUNNELING
         if path is not None:
             if not needs_path:
                 raise ValueError(
-                    'path: is used only with theory="cvt" or tunneling="zct" or "sct"'
+                    'path: is used only with theory="cvt", "icvt" or "muvt" or '
+                    'tunneling="zct" or "sct"'
                 )
             if not isinstance(path, ReactionPath):
                 raise TypeError(
@@ -350,6 +380,8 @@ class Reaction:
         points = self.optimize()
         tst = tst_rate(points.reactants, points.ts, t)
         cvt = None
+        icvt = None
+        muvt = None
         pt = None
         if needs_path:
             if path is None:
@@ -365,9 +397,19 @@ class Reaction:
                     f"this reaction's by {self._freq_scale}; recompute it with "
                     "this reaction's compute_mep()"
                 )
-        if theory == "cvt":
+        if theory in VARIATIONAL:
             path = cast(ReactionPath, path)
-            cvt = cvt_rate(points.reactants, path, t, points.ts.imag_threshold)
+            threshold = points.ts.imag_threshold
+            if theory == "cvt":
+                cvt = cvt_rate(points.reactants, path, t, threshold)
+            elif theory == "icvt":
+                icvt = icvt_rate(
+                    points.reactants, path, t, threshold, products=points.products
+                )
+            else:
+                muvt = muvt_rate(
+                    points.reactants, path, t, threshold, products=points.products
+                )
         # optimize() checked that the transition state is a first-order saddle.
         nu = cast(float, points.ts.imaginary_frequency)
         if tunneling == "wigner":
@@ -379,22 +421,32 @@ class Reaction:
                 v2 = zpe_energy(points.ts) - sum(zpe_energy(p) for p in points.products)
             kappa = eckart(v1, v2, nu, t)
         elif tunneling in PATH_TUNNELING:
+            s_ref: FloatArray | float | None = 0.0
+            if cvt is not None:
+                s_ref = cvt.s_star
+            elif theory in ("icvt", "muvt"):
+                s_ref = None
             pt = path_tunneling(
                 points.reactants,
                 cast(ReactionPath, path),
                 t,
                 cast(Literal["zct", "sct"], tunneling),
                 products=points.products,
-                s_ref=0.0 if cvt is None else cvt.s_star,
+                s_ref=s_ref,
                 imag_threshold=points.ts.imag_threshold,
-                # CVT has already warned about the points it left out.
-                warn_excluded=cvt is None,
+                # A variational theory has already warned about the points it
+                # left out.
+                warn_excluded=theory not in VARIATIONAL,
             )
             kappa = np.array(pt.kappa)
         else:
             kappa = np.ones_like(t)
         k_tst = np.array(tst.k)
-        k = (k_tst if cvt is None else cvt.k) * kappa
+        k_theory = k_tst
+        for detail in (cvt, icvt, muvt):
+            if detail is not None:
+                k_theory = np.array(detail.k)
+        k = k_theory * kappa
         for a in (t, k, k_tst, kappa):
             a.flags.writeable = False
         return RateResult(
@@ -408,6 +460,8 @@ class Reaction:
             barrier_kcal=tst.barrier_zpe * HARTREE_TO_KCAL_PER_MOL,
             cvt=cvt,
             path_tunneling=pt,
+            icvt=icvt,
+            muvt=muvt,
         )
 
     def compute_mep(
