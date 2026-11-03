@@ -1,4 +1,4 @@
-# Contributing to pyvtst
+# Contributing to PyVTST
 
 Thanks for your interest in PyVTST. Bug reports, fixes, documentation and new
 features are all welcome.
