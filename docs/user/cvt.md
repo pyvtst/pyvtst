@@ -66,7 +66,7 @@ the path points used (`s`), k^GT(T, s) (`k_gt`) and ΔG^GT,°(T, s) at the 1 bar
 standard state (`delta_g`, hartree). Between path points s* is refined with a
 parabola through the three points around the lowest k^GT. The symmetry number
 of the transition state is used at every s. Wigner and Eckart κ(T) are the
-saddle-point values in both theories; ZCT and SCT follow the path.
+saddle-point values in every theory; ZCT and SCT follow the path.
 
 When s* falls on the first or last usable point of the path at some
 temperature, a warning names the temperatures and the side: the bottleneck may
@@ -83,3 +83,36 @@ from pyvtst import plot_free_energy
 ax = plot_free_energy(result, units="kJ/mol")
 ax.figure.savefig("h3_cvt.png")
 ```
+
+## ICVT and µVT
+
+CVT counts every state of the generalized transition state, including those
+below the top V^AG of the vibrationally adiabatic barrier, which cannot react.
+Two theories leave them out. Both start from the threshold energy E_th, which
+is V^AG or, if higher, the reactants' or products' zero-point level:
+
+- `theory="icvt"` (improved CVT) multiplies k^GT(T, s) by the Boltzmann-weighted
+  fraction F(T, s) of the point's states at or above E_th, then takes the
+  minimum over s as CVT does.
+- `theory="muvt"` (microcanonical variational TST) finds the bottleneck
+  separately at each energy E ≥ E_th, where the sum of states
+  N^GT(E − V_a^G(s), s) is lowest, then averages over a Boltzmann distribution.
+
+```python
+icvt = rxn.rates([200, 300, 500], theory="icvt", path=path)
+muvt = rxn.rates([200, 300, 500], theory="muvt", path=path)
+print(icvt.table())  # T, s*, k_TST, k_ICVT, kappa, k
+print(muvt.table())  # T, k_TST, k_muVT, kappa, k
+print(icvt.icvt.f, muvt.muvt.s_star)  # F(T, s); s*(E) on muvt.muvt.energies
+```
+
+k^µVT ≤ k^ICVT ≤ k^CVT. The difference matters at low temperature and when s*
+moves away from the V_a^G maximum. Sums of states count the harmonic
+vibrations exactly on a 1 cm⁻¹ grid, convolved with the same classical rigid
+rotor as the partition functions, so ICVT equals CVT wherever V_a^G(s*) = E_th.
+µVT warns when more than 1 % of its rate comes from energies whose bottleneck
+is an end of the path.
+
+References: B. C. Garrett and D. G. Truhlar, *J. Phys. Chem.* 83, 1079 (1979);
+B. C. Garrett, D. G. Truhlar, R. S. Grev and A. W. Magnuson, *J. Phys. Chem.*
+84, 1730 (1980).

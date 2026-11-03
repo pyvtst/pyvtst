@@ -136,6 +136,17 @@ def test_reference_at_the_variational_transition_state():
     np.testing.assert_allclose(result.kappa, base.kappa * expected, rtol=1e-10)
 
 
+@pytest.mark.parametrize("method", ["zct", "sct"])
+def test_no_reference_for_icvt_and_muvt(method):
+    # The V_a^G maximum lies between the points at 0 and 0.05 bohr.
+    curvature = [np.array([0.2, 0.1, 0.0])] * S_LONG.size
+    path = profile_path(S_LONG, parabola(S_LONG - S_OFF), curvature=curvature)
+    result = path_tunneling(reactants(), path, T_GRID, method, s_ref=None)
+    np.testing.assert_array_equal(result.kappa_cag, 1.0)
+    at_top = path_tunneling(reactants(), path, T_GRID, method, s_ref=result.s_max)
+    np.testing.assert_allclose(result.kappa, at_top.kappa, rtol=1e-12)
+
+
 def test_high_temperature_limit():
     path = profile_path(S_LONG, parabola(S_LONG))
     result = path_tunneling(reactants(), path, 1e5)

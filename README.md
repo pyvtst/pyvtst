@@ -12,10 +12,9 @@
   <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-mypy%20strict-blue" alt="mypy strict"></a>
 </p>
 
-Thermal rate constants for gas-phase chemical reactions from conventional and
-canonical variational transition state theory, with tunneling corrections.
 PyVTST computes thermal rate constants for gas-phase chemical reactions from
-conventional and canonical variational transition state theory (TST and CVT),
+conventional and variational transition state theory: TST, and canonical,
+improved canonical and microcanonical variational TST (CVT, ICVT and µVT),
 with Wigner, Eckart, zero-curvature and small-curvature tunneling corrections.
 It optimizes the stationary points, traces the minimum-energy path and
 evaluates the rate constants from energies, gradients and Hessians computed

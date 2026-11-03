@@ -163,7 +163,7 @@ print(result.barrier_kcal)  # ΔE₀‡ in kcal/mol
 ```
 
 `result.k`, `result.k_tst` and `result.kappa` are numpy arrays, one value per
-temperature. `rates()` also takes `theory="cvt"` for
+temperature. `rates()` also takes `theory="cvt"`, `"icvt"` or `"muvt"` for
 [Variational TST](cvt.md) and `tunneling=` for a tunneling correction:
 `"wigner"`, `"eckart"`, `"zct"` or `"sct"`; see
 [Multidimensional tunneling](tunneling.md).

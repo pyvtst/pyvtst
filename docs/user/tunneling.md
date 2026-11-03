@@ -43,7 +43,7 @@ transmission probability P(E) is the uniform semiclassical one through it. SCT
 also lets the tunneling path cut the corner of a curved reaction path, through
 an effective mass μ_eff(s) ≤ μ computed from the path's curvature
 (`path.curvature`, from `compute_mep()`), so κ^SCT ≥ κ^ZCT. Both work with
-either theory:
+any theory:
 
 ```python
 path = rxn.compute_mep(s_min=-2.0, s_max=2.0)
@@ -55,8 +55,10 @@ print(cvt_sct.path_tunneling.e0, cvt_sct.path_tunneling.kappa_cag)
 
 κ includes the classical adiabatic ground-state (CAG) factor
 exp(−[V^AG − V_a^G(s_ref)]/k_B T), which refers it to the rate theory it
-multiplies: s_ref = 0 for TST and s*(T) for CVT. That gives TST/ZCT, TST/SCT,
-CVT/ZCT and CVT/SCT as reported in the literature. `result.path_tunneling`
+multiplies: s_ref = 0 for TST and s*(T) for CVT. ICVT and µVT already use
+V^AG as their threshold, so for them the CAG factor is 1. That gives TST/ZCT,
+CVT/SCT, ICVT/SCT, µVT/SCT and so on, as reported in the literature.
+`result.path_tunneling`
 holds E₀, the maximum V^AG and its s, the CAG factor, V_a^G and μ_eff/μ at the
 path points, and P(E).
 

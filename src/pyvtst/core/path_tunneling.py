@@ -96,7 +96,7 @@ def path_tunneling(
     method: Method | str = "zct",
     *,
     products: Sequence[StationaryPoint] | None = None,
-    s_ref: npt.ArrayLike = 0.0,
+    s_ref: npt.ArrayLike | None = 0.0,
     imag_threshold: float = DEFAULT_IMAG_THRESHOLD,
     warn_excluded: bool = True,
 ) -> PathTunnelingResult:
@@ -123,6 +123,8 @@ def path_tunneling(
         products: The product minima, or ``None``.
         s_ref: s of the dividing surface κ refers to, bohr: 0 for
             conventional TST, s*(T) for CVT (one value per temperature).
+            ``None`` for ICVT and µVT, whose classical threshold is already
+            V^AG: then κ^CAG = 1.
         imag_threshold: Imaginary-frequency threshold in cm⁻¹, normally the
             transition state's.
         warn_excluded: Warn about points left out for an imaginary
@@ -140,7 +142,9 @@ def path_tunneling(
     if method not in METHODS:
         raise ValueError(f"method: expected 'zct' or 'sct', got {method!r}")
     t = temperatures(T)
-    ref = np.broadcast_to(np.asarray(s_ref, dtype=np.float64), t.shape)
+    ref = None
+    if s_ref is not None:
+        ref = np.broadcast_to(np.asarray(s_ref, dtype=np.float64), t.shape)
     reference = sum(zpe_energy(sp) for sp in reactants)
     usable = usable_points(
         path,
@@ -162,7 +166,7 @@ def path_tunneling(
             for i in usable
         ]
     )
-    if np.any(ref < s[0]) or np.any(ref > s[-1]):
+    if ref is not None and (np.any(ref < s[0]) or np.any(ref > s[-1])):
         raise ValueError(
             f"s_ref: must lie within the usable points, [{s[0]:+.4f}, "
             f"{s[-1]:+.4f}] bohr"
@@ -201,7 +205,10 @@ def path_tunneling(
 
     theta = _ThetaTable(profile, mass, e0)
     kappa_raw = np.array([theta.boltzmann_average(BOLTZMANN_AU * ti) for ti in t])
-    kappa_cag = np.exp(-(profile.v_max - profile.at(ref)) / (BOLTZMANN_AU * t))
+    if ref is None:
+        kappa_cag = np.ones_like(t)
+    else:
+        kappa_cag = np.exp(-(profile.v_max - profile.at(ref)) / (BOLTZMANN_AU * t))
     energies, probability = theta.probabilities()
     mu_eff = np.asarray(mass(s), dtype=np.float64)
     arrays = (t, kappa_raw * kappa_cag, kappa_cag, s, v, mu_eff, energies, probability)
