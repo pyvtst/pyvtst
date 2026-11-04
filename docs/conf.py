@@ -58,7 +58,7 @@ intersphinx_mapping = {
 }
 
 html_theme = "pydata_sphinx_theme"
-html_title = f"pyvtst {release}"
+html_title = f"PyVTST v{release} documentation"
 html_theme_options = {
     # Fixed-color copies of logo.svg; see _check_logo_variants.
     "logo": {

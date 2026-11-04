@@ -1,4 +1,4 @@
-# PyVTST
+# PyVTST Documentation
 
 ```{include} ../README.md
 :start-after: "</p>\n\n"
