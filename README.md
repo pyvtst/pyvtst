@@ -12,6 +12,7 @@
   <a href="https://pypi.org/project/pyvtst/"><img src="https://img.shields.io/pypi/v/pyvtst.svg" alt="PyPI"></a>
   <a href="https://github.com/pyvtst/pyvtst"><img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fpyvtst%2Fpyvtst%2Fmain%2Fpyproject.toml" alt="Python versions"></a>
   <a href="https://github.com/pyvtst/pyvtst/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pyvtst/pyvtst.svg" alt="License"></a>
+  <br>
   <a href="https://doi.org/10.5281/zenodo.23946059"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.23946059.svg" alt="DOI"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
   <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-mypy%20strict-blue" alt="mypy strict"></a>
