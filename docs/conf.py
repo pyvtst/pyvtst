@@ -62,8 +62,8 @@ html_theme_options = {
     # One logo for both themes, and the same file the README shows on GitHub
     # and PyPI: the teal wordmark reads 3.7:1 on white and 5:1 on dark.
     "logo": {
-        "image_light": "_static/logo.svg",
-        "image_dark": "_static/logo.svg",
+        "image_light": "logo.svg",
+        "image_dark": "logo.svg",
     },
     "github_url": "https://github.com/pyvtst/pyvtst",
     "use_edit_page_button": True,
