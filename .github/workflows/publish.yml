@@ -42,7 +42,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: pyvtst
       url: https://pypi.org/project/pyvtst/
     permissions:
       # Trusted publishing: PyPI exchanges the OIDC token for an upload token.
