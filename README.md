@@ -82,7 +82,7 @@ If you use PyVTST in your research, please cite it:
   author  = {Roșca, Emilian},
   title   = {{PyVTST}: variational transition state theory in Python},
   url     = {https://github.com/pyvtst/pyvtst},
-  version = {0.2.1},
+  version = {0.2.0},
   year    = {2026},
 }
 ```
