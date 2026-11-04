@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/_static/logo-readme.svg" alt="PyVTST" width="400">
+  <img src="https://raw.githubusercontent.com/pyvtst/pyvtst/main/docs/_static/logo.svg" alt="PyVTST" width="400">
 </p>
 
 <p align="center">
