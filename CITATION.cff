@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use pyvtst in your research, please cite it as below."
 type: software
-title: "pyvtst"
+title: "PyVTST - Variational Transition State Theory in Python"
 authors:
   - given-names: Emilian
     family-names: Roșca
