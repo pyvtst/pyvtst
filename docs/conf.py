@@ -86,11 +86,13 @@ html_context = {
 
 
 def _check_logo_variants() -> None:
-    """Fail the build unless _static/logo-{light,dark}.svg match logo.svg.
+    """Fail the build unless _static/logo-{light,dark,readme}.svg match logo.svg.
 
     logo.svg follows the system theme through a prefers-color-scheme query,
     which neither the docs' theme toggle nor GitHub's appearance setting can
-    reach, so the docs and the README use fixed-color copies of it.
+    reach, so the docs use fixed-color copies of it. The README uses a single
+    mid-tone copy because PyPI has no dark theme: a prefers-color-scheme
+    switch there shows the dark logo on PyPI's white page.
     """
     docs = Path(__file__).parent
     svg = (docs / "logo.svg").read_text(encoding="utf-8")
@@ -99,13 +101,14 @@ def _check_logo_variants() -> None:
     )
     if light == svg:
         raise ValueError("logo.svg: the prefers-color-scheme block was not found")
-    expected = {"light": light, "dark": light.replace("#22223B", "#ECEAF4")}
+    inks = {"light": "#22223B", "dark": "#ECEAF4", "readme": "#77738F"}
+    expected = {mode: light.replace("#22223B", ink) for mode, ink in inks.items()}
     for mode, text in expected.items():
         path = docs / "_static" / f"logo-{mode}.svg"
         if path.read_text(encoding="utf-8") != text:
             raise ValueError(
                 f"{path.name} differs from logo.svg; regenerate it after "
-                "editing logo.svg (dark mode swaps #22223B for #ECEAF4)"
+                f"editing logo.svg (it swaps #22223B for {inks[mode]})"
             )
 
 
