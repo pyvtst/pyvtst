@@ -1,6 +1,5 @@
 """Sphinx configuration for the pyvtst documentation."""
 
-import re
 import shutil
 import sys
 from importlib.metadata import version as _version
@@ -60,10 +59,11 @@ intersphinx_mapping = {
 html_theme = "pydata_sphinx_theme"
 html_title = f"PyVTST v{release} documentation"
 html_theme_options = {
-    # Fixed-color copies of logo.svg; see _check_logo_variants.
+    # One logo for both themes, and the same file the README shows on GitHub
+    # and PyPI: the teal wordmark reads 3.7:1 on white and 5:1 on dark.
     "logo": {
-        "image_light": "_static/logo-light.svg",
-        "image_dark": "_static/logo-dark.svg",
+        "image_light": "logo.svg",
+        "image_dark": "logo.svg",
     },
     "github_url": "https://github.com/pyvtst/pyvtst",
     "use_edit_page_button": True,
@@ -85,32 +85,8 @@ html_context = {
 }
 
 
-def _check_logo_variants() -> None:
-    """Fail the build unless _static/logo-{light,dark}.svg match logo.svg.
-
-    logo.svg follows the system theme through a prefers-color-scheme query,
-    which neither the docs' theme toggle nor GitHub's appearance setting can
-    reach, so the docs and the README use fixed-color copies of it.
-    """
-    docs = Path(__file__).parent
-    svg = (docs / "logo.svg").read_text(encoding="utf-8")
-    light = re.sub(
-        r"\s*@media \(prefers-color-scheme: dark\) \{[^}]*\}\s*\}?", "\n", svg
-    )
-    if light == svg:
-        raise ValueError("logo.svg: the prefers-color-scheme block was not found")
-    expected = {"light": light, "dark": light.replace("#22223B", "#ECEAF4")}
-    for mode, text in expected.items():
-        path = docs / "_static" / f"logo-{mode}.svg"
-        if path.read_text(encoding="utf-8") != text:
-            raise ValueError(
-                f"{path.name} differs from logo.svg; regenerate it after "
-                "editing logo.svg (dark mode swaps #22223B for #ECEAF4)"
-            )
-
-
 def _build_assets(app: Any, config: Any) -> None:
-    """Write the figures and plotly.js; check the logo variants."""
+    """Write the figures and plotly.js."""
     docs = Path(__file__).parent
     sys.path.insert(0, str(docs))
     import figures  # noqa: PLC0415
@@ -121,7 +97,6 @@ def _build_assets(app: Any, config: Any) -> None:
     static.mkdir(parents=True, exist_ok=True)
     bundle = Path(plotly.__file__).parent / "package_data" / "plotly.min.js"
     shutil.copyfile(bundle, static / "plotly.min.js")
-    _check_logo_variants()
 
 
 def _add_figure_scripts(
