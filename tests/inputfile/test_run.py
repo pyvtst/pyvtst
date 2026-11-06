@@ -141,3 +141,11 @@ def test_warnings_are_recorded(write, registry):
     log = execute(load(write(text), registry), registry)
     assert log.exception is None
     assert any("total spin is not conserved" in w for w in log.warnings)
+
+
+def test_default_optimizer(write, registry):
+    pytest.importorskip("geometric")
+    text = H3_INPUT.replace('[optimizer]\ntype = "exact"\n', "")
+    (result,) = run(write(text), registry=registry)
+    direct = direct_reaction(CountingLEPS()).rates([300, 1000], tunneling="eckart")
+    np.testing.assert_allclose(result.k, direct.k, rtol=1e-3)

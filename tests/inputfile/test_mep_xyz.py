@@ -7,7 +7,7 @@ from pyvtst.core.units import BOHR_TO_ANGSTROM
 from pyvtst.inputfile import load
 from pyvtst.inputfile.build import execute
 from pyvtst.inputfile.cli import main
-from pyvtst.inputfile.report import mep_xyz_path, write_report
+from pyvtst.inputfile.report import mep_xyz_path, render, write_report
 from tests.inputfile.conftest import H3_INPUT
 
 PATH_INPUT = H3_INPUT.replace(
@@ -84,3 +84,9 @@ def test_command_writes_the_trajectory(write, registry, tmp_path):
     )
     assert (tmp_path / "out" / "run_mep.xyz").is_file()
     assert not (tmp_path / "calc" / "h3_mep.xyz").exists()
+
+
+def test_report_without_a_trajectory_file(run_log):
+    report = render(run_log)
+    assert "REACTION PATH" in report
+    assert "geometries (angstrom)" not in report

@@ -161,3 +161,58 @@ def test_report_with_path_and_products(write, registry, tmp_path):
     assert "s from -0.5000 to 0.5000 bohr, 101 points, method lqa" in report
     assert "product 'H2 product'" in report
     assert "product 'H product'" in report
+
+
+def test_freq_scale_wrong_type(write):
+    errors = load_errors(write, 'freq_scale = "1"\n' + PYSCF_INPUT)
+    assert len(errors) == 1
+    assert errors[0].endswith(": freq_scale: expected a number, found a string")
+
+
+@pytest.mark.parametrize(
+    ("text", "fragment"),
+    [
+        (
+            PYSCF_INPUT.replace("[reactants.", "[unused."),
+            "reactants: missing required key",
+        ),
+        (PYSCF_INPUT.replace("[engine]", "[unused]"), "engine: missing required key"),
+    ],
+)
+def test_missing_sections(write, text, fragment):
+    errors = load_errors(write, text)
+    assert any(fragment in e for e in errors), errors
+
+
+@pytest.mark.parametrize(
+    ("rates", "fragment"),
+    [
+        ("[rates]\nT = 300\n", "rates: expected an array of tables: write [[rates]]"),
+        ("rates = 5\n", "rates: expected an array of tables, found an integer"),
+        ("rates = []\n", "rates: expected at least one table"),
+    ],
+)
+def test_rates_shape(write, rates, fragment):
+    text = PYSCF_INPUT.replace("[[rates]]\nT = 300\n", "")
+    if rates.startswith("rates"):
+        text = rates + text
+    else:
+        text += rates
+    errors = load_errors(write, text)
+    assert any(fragment in e for e in errors), errors
+
+
+def test_reactants_without_a_numbered_table(write):
+    text = PYSCF_INPUT.replace("[reactants.r1]", "[reactants.H2]").replace(
+        "[reactants.r2]", "[reactants.H]"
+    )
+    errors = load_errors(write, text)
+    assert len(errors) == 2
+    assert all("unknown key; reactants are numbered tables" in e for e in errors)
+
+
+def test_mep_field_error(write):
+    text = PYSCF_INPUT.replace("[[rates]]", '[mep]\ns_min = "a"\n\n[[rates]]')
+    errors = load_errors(write, text)
+    assert len(errors) == 1
+    assert "mep.s_min: expected a number, found a string" in errors[0]

@@ -353,14 +353,23 @@ def _convert(value: object, f: Field) -> tuple[object, str | None]:
 def _read_table(
     ctx: _Context, data: object, fields: Sequence[Field], path: str
 ) -> dict[str, Any] | None:
-    """Check ``data`` against ``fields``; return every field's value or default.
+    """:func:`_read_fields` for a value that may not be a table.
 
-    A field whose value is wrong is left out of the result. Returns ``None``
-    when ``data`` is not a table.
+    Returns ``None``, after reporting it, when ``data`` is not a table.
     """
     if not isinstance(data, dict):
         ctx.error(path, f"expected a table, found {_toml_type(data)}")
         return None
+    return _read_fields(ctx, data, fields, path)
+
+
+def _read_fields(
+    ctx: _Context, data: Mapping[str, object], fields: Sequence[Field], path: str
+) -> dict[str, Any]:
+    """Check a table against ``fields``; return every field's value or default.
+
+    A field whose value is wrong is left out of the result.
+    """
     names = [f.name for f in fields]
     for key in data:
         if key not in names:
@@ -387,9 +396,7 @@ def _read_table(
 def _input(
     ctx: _Context, data: dict[str, Any], file: Path, text: str, registry: Registry
 ) -> InputSpec | None:
-    top = _read_table(ctx, data, TOP_FIELDS, "")
-    if top is None:  # tomllib always returns a table
-        return None
+    top = _read_fields(ctx, data, TOP_FIELDS, "")
     freq_scale = 1.0
     if "freq_scale" in top:
         try:
@@ -553,7 +560,7 @@ _MOLECULE_KEYS = {
 
 
 def _molecule(
-    ctx: _Context, data: object, path: str, default_name: str | None = None
+    ctx: _Context, data: dict[str, Any], path: str, default_name: str | None = None
 ) -> Molecule | None:
     """Build one molecule table's molecule; ``None`` after reporting errors.
 
@@ -561,10 +568,7 @@ def _molecule(
     ``default_name`` (or ``path``).
     """
     n_errors = len(ctx.errors)
-    values = _read_table(ctx, data, MOLECULE_FIELDS, path)
-    if values is None:
-        return None
-    data = cast(dict[str, Any], data)  # _read_table checked it is a table
+    values = _read_fields(ctx, data, MOLECULE_FIELDS, path)
     xyz, file = values.get("xyz"), values.get("file")
     if ("xyz" in data) == ("file" in data):
         ctx.error(path, "exactly one of 'xyz' and 'file' is required")
@@ -671,9 +675,11 @@ def _parse_xyz(
 
 
 def _adapter(
-    ctx: _Context, data: object, path: str, entries: Mapping[str, AdapterEntry]
+    ctx: _Context,
+    data: dict[str, Any],
+    path: str,
+    entries: Mapping[str, AdapterEntry],
 ) -> AdapterSpec | None:
-    data = cast(dict[str, Any], data)  # the top-level pass checked it is a table
     kind = path  # "engine" or "optimizer"
     registered = ", ".join(repr(k) for k in sorted(entries))
     if "type" not in data:
@@ -692,8 +698,8 @@ def _adapter(
         return None
     options = {k: v for k, v in data.items() if k != "type"}
     n_errors = len(ctx.errors)
-    values = _read_table(ctx, options, entry.fields, path)
-    if values is None or len(ctx.errors) > n_errors:
+    values = _read_fields(ctx, options, entry.fields, path)
+    if len(ctx.errors) > n_errors:
         return None
     for key in entry.path_keys:
         if values.get(key) is not None:
@@ -707,10 +713,10 @@ def _adapter(
 _MEP_KEYS = {k: k for k in ("s_min", "s_max", "ds", "method", "hessian_every")}
 
 
-def _mep(ctx: _Context, data: object, ts: Molecule | None) -> MEPSpec | None:
+def _mep(ctx: _Context, data: dict[str, Any], ts: Molecule | None) -> MEPSpec | None:
     n_errors = len(ctx.errors)
-    values = _read_table(ctx, data, MEP_FIELDS, "mep")
-    if values is None or len(ctx.errors) > n_errors:
+    values = _read_fields(ctx, data, MEP_FIELDS, "mep")
+    if len(ctx.errors) > n_errors:
         return None
     try:
         s_min, s_max, ds, every, method = _mep_parameters(
@@ -780,8 +786,8 @@ _T_FORMS = "a number, an array of numbers or a table { start, stop, step }"
 def _temperatures(ctx: _Context, value: object, path: str) -> tuple[float, ...] | None:
     if isinstance(value, dict):
         n_errors = len(ctx.errors)
-        r = _read_table(ctx, value, T_RANGE_FIELDS, path)
-        if r is None or len(ctx.errors) > n_errors:
+        r = _read_fields(ctx, value, T_RANGE_FIELDS, path)
+        if len(ctx.errors) > n_errors:
             return None
         start, stop, step = r["start"], r["stop"], r["step"]
         if not start > 0:

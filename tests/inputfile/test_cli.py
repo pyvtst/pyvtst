@@ -1,5 +1,6 @@
 """The pyvtst command and its report."""
 
+import runpy
 import subprocess
 import sys
 from datetime import datetime
@@ -176,3 +177,13 @@ def test_report_matches_returned_results(write, tmp_path):
     api = (tmp_path / "api.out").read_text()
     cli = (tmp_path / "h3.out").read_text()
     assert masked(api) == masked(cli)
+
+
+def test_main_module_in_process(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(sys, "argv", ["pyvtst", str(tmp_path / "nothere.toml")])
+    with pytest.raises(SystemExit) as info:
+        runpy.run_module("pyvtst", run_name="__main__")
+    assert info.value.code == 2
+    assert "nothere.toml" in capsys.readouterr().err
+    # Imported under its own name, the module runs nothing.
+    runpy.run_module("pyvtst.__main__")
