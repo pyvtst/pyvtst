@@ -35,6 +35,7 @@ from pyvtst.core.rates import (
     path_end_name,
     point_zpe,
     usable_points,
+    widen_hint,
     zpe_energy,
 )
 from pyvtst.core.states import DEFAULT_GRAIN, sum_of_states
@@ -348,7 +349,7 @@ def _threshold(
             f"{label}: the maximum of V_a^G lies at the "
             f"{path_end_name(path, top == 0)} of the path (s = {s[top]:+.4f} "
             "bohr); the barrier top is not inside the path, so the threshold "
-            "energy may be too low, widen its s range",
+            f"energy may be too low; {widen_hint(path, top == 0)}",
             stacklevel=3,
         )
     return e_th, v_max, float(s[top])
@@ -459,6 +460,6 @@ def _warn_muvt_ends(
                 f"{lo * HARTREE_TO_KCAL_PER_MOL:.2f} to "
                 f"{hi * HARTREE_TO_KCAL_PER_MOL:.2f} kcal/mol above the "
                 "threshold; the variational transition state may lie beyond "
-                "the path, widen its s range",
+                f"the path; {widen_hint(path, first)}",
                 stacklevel=4,
             )

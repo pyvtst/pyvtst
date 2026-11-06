@@ -1,3 +1,4 @@
+import dataclasses
 import warnings
 
 import numpy as np
@@ -17,6 +18,7 @@ from pyvtst.core.rates import (
     _parabola_minimum,
     cvt_rate,
     tst_rate,
+    widen_hint,
     zpe_energy,
 )
 from pyvtst.core.stationary import StationaryPoint
@@ -185,7 +187,9 @@ def test_bottleneck_moves_with_temperature():
 
 def test_minimum_at_the_end_of_the_path():
     path = quadratic_path(s0=0.8)
-    with pytest.warns(UserWarning, match="widen its s range") as record:
+    with pytest.warns(
+        UserWarning, match=r"widen the path's s range \(s_max\)"
+    ) as record:
         result = cvt_rate(reactants(), path, [300.0, 1000.0])
     messages = [str(w.message) for w in record]
     assert len(messages) == 1
@@ -315,3 +319,28 @@ def test_cvt_reads_scaled_frequencies_as_stored():
     b = cvt_rate(reactants(), by_hand, T_GRID)
     np.testing.assert_array_equal(a.k, b.k)
     np.testing.assert_array_equal(a.s_star, b.s_star)
+
+
+def test_minimum_at_an_end_that_stopped_at_a_minimum():
+    path = dataclasses.replace(quadratic_path(s0=0.8), stop_product="minimum")
+    with pytest.warns(UserWarning, match="stopped at a minimum") as record:
+        cvt_rate(reactants(), path, [300.0])
+    (message,) = [str(w.message) for w in record]
+    assert "the path stopped at a minimum on that side" in message
+    assert "cannot extend it" in message
+    assert "widen the path" not in message
+
+
+@pytest.mark.parametrize(
+    ("first", "stop", "expected"),
+    [
+        (True, "s_limit", "widen the path's s range (s_min)"),
+        (False, "s_limit", "widen the path's s range (s_max)"),
+        (False, "energy_rise", "widen the path's s range (s_max)"),
+        (True, "minimum", "a wider s range (s_min) cannot extend it"),
+    ],
+)
+def test_widen_hint(first, stop, expected):
+    field = "stop_reactant" if first else "stop_product"
+    path = dataclasses.replace(quadratic_path(s0=0.8), **{field: stop})
+    assert expected in widen_hint(path, first)

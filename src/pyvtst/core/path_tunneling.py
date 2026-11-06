@@ -30,7 +30,13 @@ import scipy.interpolate
 
 from pyvtst.core.mep import ReactionPath
 from pyvtst.core.partition import temperatures
-from pyvtst.core.rates import path_end_name, point_zpe, usable_points, zpe_energy
+from pyvtst.core.rates import (
+    path_end_name,
+    point_zpe,
+    usable_points,
+    widen_hint,
+    zpe_energy,
+)
 from pyvtst.core.stationary import DEFAULT_IMAG_THRESHOLD, StationaryPoint
 from pyvtst.core.units import AMU_TO_ME, BOLTZMANN_AU, CM1_TO_HARTREE
 from pyvtst.core.units import HARTREE_TO_KCAL_PER_MOL as _KCAL
@@ -185,7 +191,7 @@ def path_tunneling(
             f"the {path_end_name(path, first)} (s = {s[0 if first else -1]:+.4f} "
             f"bohr), {(e0 - e_asym) * _KCAL:.2f} kcal/mol above the lowest "
             "zero-point level; E0 is raised to it, so kappa is underestimated "
-            "at low temperature. Pass a path with a wider s range via path=",
+            f"at low temperature; {widen_hint(path, first)}",
             stacklevel=3,
         )
     if profile.top_index in (0, s.size - 1):
@@ -193,7 +199,7 @@ def path_tunneling(
             "tunneling: the maximum of V_a^G lies at the "
             f"{path_end_name(path, profile.top_index == 0)} of the path "
             f"(s = {profile.s_max:+.4f} bohr); the barrier top is not inside the "
-            "path, widen its s range",
+            f"path; {widen_hint(path, profile.top_index == 0)}",
             stacklevel=3,
         )
     if not profile.v_max > e0:
@@ -318,8 +324,8 @@ class _SCTMass:
     def from_path(cls, path: ReactionPath, usable: list[int]) -> _SCTMass:
         if path.curvature is None:
             raise ValueError(
-                "path: SCT needs the path's curvature, which comes from "
-                "Reaction.compute_mep(); this path has none"
+                "path: SCT needs the reaction-path curvature, which this path "
+                "does not have; use a path traced by pyvtst for this reaction"
             )
         points = [i for i in usable if path.curvature[i] is not None]
         return cls(
