@@ -69,6 +69,50 @@ print(result.table())
 molecules, engines, caching, reaction paths, variational TST, tunneling and
 frequency scale factors.
 
+### Input files
+
+The same calculation can be written as a TOML input file and run from the
+shell, as with ORCA or Gaussian:
+
+```toml
+[engine]
+type = "pyscf"
+method = "B3LYP"
+basis = "def2-SVP"
+
+[reactants.r1]
+symmetry_number = 2
+xyz = """
+H 0.00 0.0 0.0
+H 0.74 0.0 0.0
+"""
+
+[reactants.r2]
+mult = 2
+xyz = "H 0.0 0.0 0.0"
+
+[ts]
+mult = 2
+symmetry_number = 2
+xyz = """
+H -0.85 0.0  0.0
+H  0.00 0.0  0.0
+H  1.00 0.04 0.0
+"""
+
+[[rates]]
+T = [300, 500, 1000]
+tunneling = "eckart"
+```
+
+```bash
+pyvtst h3.toml   # writes the report to h3.out
+```
+
+Inline geometries are in Ångström unless `units = "bohr"`. The
+[input file guide](https://github.com/pyvtst/pyvtst/blob/main/docs/user/inputfile.md)
+lists every key.
+
 ## Citation
 
 If you use PyVTST in your research, please cite it:

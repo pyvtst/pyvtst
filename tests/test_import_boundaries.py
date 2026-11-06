@@ -76,3 +76,27 @@ def test_cache_keys_import_only_core():
         [sys.executable, "-c", KEYS_SCRIPT], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == ""
+
+
+# Loading (validating) a PySCF input file builds no adapter, so it imports no
+# third-party tool; they are imported only when the input is run.
+INPUTFILE_SCRIPT = f"""
+import sys, tempfile, pathlib
+sys.path.insert(0, ".")
+from tests.inputfile.conftest import PYSCF_INPUT
+from pyvtst.inputfile import load
+path = pathlib.Path(tempfile.mkdtemp()) / "h3.toml"
+path.write_text(PYSCF_INPUT)
+load(path)
+print(",".join(m for m in {FORBIDDEN!r} if m in sys.modules))
+"""
+
+
+def test_loading_an_input_imports_no_third_party_tools():
+    result = subprocess.run(
+        [sys.executable, "-c", INPUTFILE_SCRIPT],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == ""
