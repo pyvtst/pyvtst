@@ -687,7 +687,7 @@ def test_path_without_a_path_based_calculation(lqa_path, tunneling):
     engine = CountingEngine()
     rxn = mep_reaction(engine)
     with pytest.raises(
-        ValueError, match='only with theory="cvt", "icvt" or "muvt" or tunneling="zct"'
+        ValueError, match='only with theory "cvt", "icvt" or "muvt" or tunneling "zct"'
     ):
         rxn.rates(300.0, tunneling=tunneling, path=lqa_path)
     assert sum(engine.calls.values()) == 0
@@ -1080,7 +1080,8 @@ def test_cartesian_warning_suggests_internal_coordinates(monkeypatch):
         "pyvtst.reaction.generalized_normal_modes",
         inject_imaginary(generalized_normal_modes),
     )
-    with pytest.warns(UserWarning, match=r"s = -0\.4000 .*coordinates=\"redundant\""):
+    hint = r"s = -0\.4000 .*set coordinates to \"redundant\""
+    with pytest.warns(UserWarning, match=hint):
         mep_reaction(LEPSEngine()).compute_mep(
             -0.4, 0.4, ds=0.1, coordinates="cartesian"
         )

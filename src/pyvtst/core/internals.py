@@ -270,8 +270,8 @@ def _span_message(
     return (
         f"internal coordinates span {rank} of {expected} internal directions"
         f"{where}; {count} direction{'s are' if count > 1 else ' is'} missing, "
-        f"moving mostly atoms {names}; add coordinates that involve them with "
-        "internals="
+        f"moving mostly atoms {names}; add internal coordinates (internals) "
+        "that involve them"
     )
 
 

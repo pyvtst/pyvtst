@@ -335,7 +335,7 @@ def test_sct_bridges_points_without_curvature():
 
 def test_path_without_curvature():
     path = soft_path()
-    with pytest.raises(ValueError, match=r"curvature.*compute_mep"):
+    with pytest.raises(ValueError, match=r"curvature, which this path does not have"):
         path_tunneling(reactants(), path, 300.0, "sct")
 
 

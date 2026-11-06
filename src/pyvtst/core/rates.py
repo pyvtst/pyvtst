@@ -393,6 +393,24 @@ def path_end_name(path: ReactionPath, first: bool) -> str:
     return "s < 0 end" if first else "s > 0 end"
 
 
+def widen_hint(path: ReactionPath, first: bool) -> str:
+    """Advice for a result limited by one end of the path.
+
+    Names the option that sets that end (``s_min`` for the s < 0 end, ``s_max``
+    for the s > 0 end) rather than the syntax of any one interface. When the
+    path stopped at a minimum on that side, a wider range cannot extend it,
+    and the advice says so.
+    """
+    limit = "s_min" if first else "s_max"
+    stop = path.stop_reactant if first else path.stop_product
+    if stop == "minimum":
+        return (
+            "the path stopped at a minimum on that side, so a wider s range "
+            f"({limit}) cannot extend it"
+        )
+    return f"widen the path's s range ({limit})"
+
+
 def _warn_at_end(
     path: ReactionPath, s: FloatArray, end: int, temps: list[float], label: str
 ) -> None:
@@ -403,7 +421,7 @@ def _warn_at_end(
         f"{label}: at T = {listed} K the generalized rate is lowest at the "
         f"{'first' if first else 'last'} usable path point, on the {side} "
         f"(s = {s[end]:+.4f} bohr); the variational transition state may lie "
-        "beyond the path, widen its s range",
+        f"beyond the path; {widen_hint(path, first)}",
         stacklevel=4,
     )
 

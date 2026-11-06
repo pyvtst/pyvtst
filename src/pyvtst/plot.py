@@ -193,7 +193,7 @@ def plot_free_energy(
     cvt = result if isinstance(result, CVTResult) else getattr(result, "cvt", None)
     if not isinstance(cvt, CVTResult):
         raise ValueError(
-            'result: CVT results are needed; compute them with theory="cvt"'
+            'result: CVT results are needed; compute them with theory "cvt"'
         )
     _check_units(units)
     plt = _pyplot("plot_free_energy")

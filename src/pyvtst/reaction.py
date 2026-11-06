@@ -368,8 +368,8 @@ class Reaction:
         if path is not None:
             if not needs_path:
                 raise ValueError(
-                    'path: is used only with theory="cvt", "icvt" or "muvt" or '
-                    'tunneling="zct" or "sct"'
+                    'path: is used only with theory "cvt", "icvt" or "muvt" or '
+                    'tunneling "zct" or "sct"'
                 )
             if not isinstance(path, ReactionPath):
                 raise TypeError(
@@ -394,8 +394,8 @@ class Reaction:
             elif path.freq_scale != self._freq_scale:
                 raise ValueError(
                     f"path: its frequencies are scaled by {path.freq_scale}, "
-                    f"this reaction's by {self._freq_scale}; recompute it with "
-                    "this reaction's compute_mep()"
+                    f"this reaction's by {self._freq_scale}; recompute the path "
+                    "for this reaction"
                 )
         if theory in VARIATIONAL:
             path = cast(ReactionPath, path)
@@ -668,7 +668,7 @@ class Reaction:
             if coords == "cartesian":
                 hint = (
                     "; Cartesian generalized frequencies are often spuriously "
-                    'imaginary on curved paths, use coordinates="redundant"'
+                    'imaginary on curved paths; set coordinates to "redundant"'
                 )
             warnings.warn(
                 "MEP: imaginary generalized frequencies above the "
@@ -893,8 +893,8 @@ def _mep_parameters(
         every = int(hessian_every)
     if meth == "lqa" and every != 1:
         raise ValueError(
-            "hessian_every: LQA needs a Hessian at every point; use "
-            "method='euler' for sparse Hessians"
+            "hessian_every: LQA needs a Hessian at every point; set method to "
+            '"euler" for sparse Hessians'
         )
     return lo, hi, step, every, meth
 
@@ -912,8 +912,8 @@ def _coordinate_parameters(
         return coords, None
     if coords == "cartesian":
         raise ValueError(
-            "internals: only used with coordinates='redundant'; drop internals= "
-            "for Cartesian frequencies"
+            'internals: only used with coordinates "redundant"; leave internals '
+            "unset for Cartesian frequencies"
         )
     return coords, validate_internals(internals, n_atoms)
 

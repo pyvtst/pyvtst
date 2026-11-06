@@ -183,7 +183,7 @@ with the molecule, so in them the term is removed. Both give the same
 frequencies at the saddle point. Away from it, curvilinear frequencies depend
 on the set of internal coordinates, which decides what counts as a curved
 motion. When a Cartesian path has large imaginary frequencies, the warning
-that lists them suggests `coordinates="redundant"`.
+that lists them suggests setting `coordinates` to `"redundant"`.
 
 By default the internal coordinates are generated from the optimized
 transition state:
@@ -202,7 +202,7 @@ missing and which atoms move most in them:
 ```text
 internal coordinates span 2 of 4 internal directions at the transition state;
 2 directions are missing, moving mostly atoms 1 (H), 2 (H), 0 (H); add
-coordinates that involve them with internals=
+internal coordinates (internals) that involve them
 ```
 
 Add a coordinate on those atoms with `internals=`; see

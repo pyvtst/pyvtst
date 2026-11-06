@@ -23,6 +23,9 @@ classifiers = [
 ]
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
+[project.scripts]
+pyvtst = "pyvtst.inputfile.cli:main"
+
 [project.optional-dependencies]
 ase = ["ase>=3.22"]
 geometric = ["geometric>=1.1"]
@@ -115,15 +118,17 @@ root_package = "pyvtst"
 include_external_packages = true
 exclude_type_checking_imports = true
 
-# Hexagonal layering. Adapter packages (io, engines, optimizers, stores) and
-# the plot module sit above ports, which sit above core; adapters do not
-# import each other.
+# Hexagonal layering. Input files drive the Reaction facade, which sits above
+# the adapter packages (io, engines, optimizers, stores) and the plot module;
+# those sit above ports, which sit above core. Adapters do not import each
+# other.
 # Parenthesised layers are optional, so planned packages can be listed now.
 [[tool.importlinter.contracts]]
 name = "Hexagonal layers"
 type = "layers"
 containers = ["pyvtst"]
 layers = [
+    "(inputfile)",
     "(reaction)",
     "io | (engines) | (optimizers) | (stores) | plot",
     "(ports)",
