@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pyvtst import Molecule, Reaction
+from pyvtst import ArrheniusFit, Molecule, Reaction
 from pyvtst.inputfile import load, run
 from pyvtst.inputfile.build import execute
 from pyvtst.ports import ConvergenceError
@@ -45,6 +45,34 @@ def test_same_numbers_as_the_python_api(write, registry):
     direct = direct_reaction(CountingLEPS()).rates([300, 1000], tunneling="eckart")
     np.testing.assert_array_equal(result.k, direct.k)
     np.testing.assert_array_equal(result.kappa, direct.kappa)
+
+
+def test_arrhenius_fits_are_recorded(write, registry):
+    rates = (
+        "[[rates]]\nT = [300, 1000]\n\n"
+        "[[rates]]\nT = { start = 300, stop = 1000, step = 100 }\n"
+        'arrhenius = "modified"\n'
+    )
+    log = execute(load(write(with_rates(rates)), registry), registry)
+    assert log.exception is None
+    no_fit, fit = log.fits
+    assert no_fit is None
+    assert isinstance(fit, ArrheniusFit)
+    assert fit.model == "modified"
+    assert fit.units == log.results[1].units
+    np.testing.assert_allclose(fit(log.results[1].T), log.results[1].k, rtol=0.05)
+
+
+def test_failed_fit_keeps_the_job_and_later_jobs(write, registry):
+    rates = (
+        '[[rates]]\nT = [2, 3, 4, 300]\narrhenius = "modified"\n\n'
+        "[[rates]]\nT = [300, 1000]\n"
+    )
+    log = execute(load(write(with_rates(rates)), registry), registry)
+    assert log.exception is None
+    assert len(log.results) == 2
+    assert log.fits[0] == "k: values must be finite and > 0, got 0, 0"
+    assert log.fits[1] is None
 
 
 def test_several_jobs_share_the_work(write, registry, leps):

@@ -4,7 +4,14 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from pyvtst import Molecule, RateResult, Reaction, ReactionPath
+from pyvtst import (
+    ArrheniusFit,
+    Molecule,
+    RateResult,
+    Reaction,
+    ReactionPath,
+    fit_arrhenius,
+)
 from pyvtst.core.mep import generalized_zpe
 from pyvtst.core.rates import tst_rate, zpe_energy
 from pyvtst.core.stationary import StationaryPointError
@@ -431,6 +438,45 @@ def test_table_output(rxn):
     assert len(lines) == 4
     assert "cm^3 molecule^-1 s^-1" in lines[0]
     assert lines[1].split()[0] == "300.00"
+
+
+def test_fit_arrhenius_carries_units(rxn):
+    result = rxn.rates([300.0, 500.0, 700.0, 1000.0, 1500.0])
+    fit = result.fit_arrhenius()
+    assert isinstance(fit, ArrheniusFit)
+    assert fit.model == "modified"
+    assert fit.units == "cm^3 molecule^-1 s^-1"
+    assert fit.units in str(fit)
+
+
+def test_fit_arrhenius_matches_direct_fit(rxn):
+    result = rxn.rates([300.0, 400.0, 500.0, 700.0, 1000.0, 1500.0], tunneling="eckart")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = result.fit_arrhenius("modified")
+        direct = fit_arrhenius(result.T, result.k, "modified")
+    assert (fit.A, fit.n, fit.Ea_kcal) == (direct.A, direct.n, direct.Ea_kcal)
+
+
+def test_fit_arrhenius_warning_points_at_the_caller():
+    result = RateResult(
+        T=np.array([200.0, 400.0, 600.0, 800.0]),
+        k=np.array([1.0, 50.0, 2.0, 70.0]),
+        k_tst=np.ones(4),
+        kappa=np.ones(4),
+        theory="tst",
+        tunneling=None,
+        units="s^-1",
+        barrier_kcal=0.0,
+    )
+    with pytest.warns(UserWarning, match="'arrhenius'") as record:
+        result.fit_arrhenius("arrhenius")
+    assert record[0].filename == __file__
+
+
+def test_fit_arrhenius_too_few_temperatures(rxn):
+    with pytest.raises(ValueError, match="at least 3 distinct temperatures, got 2"):
+        rxn.rates([300.0, 500.0]).fit_arrhenius()
 
 
 def test_result_is_immutable(rxn):

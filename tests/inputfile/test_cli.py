@@ -51,6 +51,23 @@ def test_existing_report_is_overwritten(write, registry, tmp_path):
     assert (tmp_path / "h3.out").read_text().startswith("=")
 
 
+def test_report_prints_the_arrhenius_fit(write, registry, tmp_path):
+    rates = (
+        "[[rates]]\nT = { start = 300, stop = 1000, step = 100 }\n"
+        'arrhenius = "modified"\n'
+        '\n[[rates]]\nT = [2, 3, 4, 300]\narrhenius = "arrhenius"\n'
+    )
+    text = H3_INPUT.replace('[[rates]]\nT = [300, 1000]\ntunneling = "eckart"\n', rates)
+    assert main([str(write(text))], registry=registry) == 0
+    lines = section((tmp_path / "h3.out").read_text(), "RATE CONSTANTS")
+    fit = lines.index("Arrhenius fit (modified): k = A (T/T_ref)^n exp(-Ea/RT)")
+    assert lines[fit - 2].startswith("  1000.00")
+    assert lines[fit + 1].startswith("  A     = ")
+    assert lines[fit + 1].endswith("cm^3 molecule^-1 s^-1")
+    assert lines[fit + 5].startswith("  fitted over 300-1000 K")
+    assert "Arrhenius fit failed: k: values must be finite and > 0, got 0, 0" in lines
+
+
 def test_module_invocation():
     result = subprocess.run(
         [sys.executable, "-m", "pyvtst", "--version"],

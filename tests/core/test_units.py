@@ -33,6 +33,11 @@ def test_other_reference_values():
     assert abs(units.BOHR_TO_ANGSTROM * units.ANGSTROM_TO_BOHR - 1.0) < 1e-15
 
 
+def test_gas_constant_matches_codata():
+    assert constants.R / constants.calorie / 1000 == units.GAS_CONSTANT_KCAL
+    assert abs(units.GAS_CONSTANT_KCAL - 1.987204e-3) < 1e-9
+
+
 def test_public_import_path():
     from pyvtst.units import BOHR_TO_ANGSTROM  # noqa: PLC0415
 

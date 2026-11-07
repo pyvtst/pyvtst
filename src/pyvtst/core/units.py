@@ -43,5 +43,8 @@ AMU_TO_ME = ATOMIC_MASS_CONSTANT / _sc.m_e
 ME_TO_AMU = 1.0 / AMU_TO_ME
 AMU_TO_KG = ATOMIC_MASS_CONSTANT
 
+# Gas constant
+GAS_CONSTANT_KCAL = _sc.R / _sc.calorie / 1e3  # kcal/(mol K)
+
 # Constants in atomic units
 BOLTZMANN_AU = _sc.k / HARTREE_TO_J  # hartree/K

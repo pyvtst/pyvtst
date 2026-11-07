@@ -34,3 +34,10 @@ cvt
 tunneling
 scaling
 ```
+
+```{toctree}
+:caption: Using the results
+:maxdepth: 1
+
+arrhenius
+```
