@@ -294,11 +294,10 @@ def test_kept_files(fake_gaussian, tmp_path):
     engine = GaussianEngine("HF", "3-21G", workdir=workdir)
     mol = tilted_h3()
     engine.energy(mol)
-    engine.energy(mol.replace(coords=mol.coords * 1.01))
+    engine.hessian(mol.replace(coords=mol.coords * 1.01))
     jobs = sorted(workdir.iterdir())
-    assert len(jobs) == 2
+    assert [job.name for job in jobs] == ["0001-force-H3", "0002-freq-H3"]
     for job in jobs:
-        assert job.name.startswith("force-H3-")
         assert {p.name for p in job.iterdir()} >= {"job.gjf", "job.log", "job.fchk"}
 
 

@@ -97,7 +97,7 @@ Keyword options:
 | `memory` | `"2GB"` | Memory per job (`%Mem`) |
 | `executable` | `None` | The Gaussian executable; see the lookup order below |
 | `formchk` | `None` | The `formchk` utility; see the lookup order below |
-| `workdir` | `None` | Keep each job's input, log and formatted checkpoint in a new subdirectory here; by default a temporary directory, removed afterwards |
+| `workdir` | `None` | Keep each job's input, log and formatted checkpoint in a new subdirectory here, named in run order (`0001-freq-HCN`, `0002-force-HCN`, ...); by default a temporary directory, removed afterwards |
 | `timeout` | `None` | Seconds after which a job is stopped and `EngineError` raised |
 | `verbose` | `False` | Pass Gaussian's own output through |
 

@@ -11,7 +11,6 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 
-from pyvtst.core.elements import formula
 from pyvtst.core.level import LevelOfTheory
 from pyvtst.core.molecule import Molecule
 from pyvtst.ports.errors import EngineError
@@ -159,9 +158,7 @@ class GaussianEngine:
             memory=self._settings.memory,
         )
         context = f"{level.key()}: Gaussian {job} for {gaussian.label(mol)}"
-        result = gaussian.run_job(
-            self._settings, deck, f"{title}-{formula(mol.symbols)}"
-        )
+        result = gaussian.run_job(self._settings, deck, gaussian.job_name(title, mol))
         if result.failure is not None:
             raise EngineError(result.describe(f"{context}: {result.failure}"))
         if result.fchk is None:
