@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from pyvtst import Molecule
+from pyvtst.programs import gaussian
 from pyvtst.programs.gaussian import (
     FORCE_JOB,
     FREQ_JOB,
@@ -12,6 +13,7 @@ from pyvtst.programs.gaussian import (
     build_deck,
     fchk_coordinates,
     fchk_results,
+    job_name,
     normalize_keywords,
     opt_job,
     parse_fchk,
@@ -380,6 +382,37 @@ def test_workdir_keeps_files_but_not_the_checkpoint(settings, tmp_path, capsys):
     kept = RunSettings(settings.g16, settings.formchk, workdir=workdir, verbose=True)
     run_job(kept, deck(H3, FORCE_JOB, keywords=""), "force-H3")
     (job,) = workdir.iterdir()
-    assert job.name.startswith("force-H3-")
+    assert job.name == "0001-force-H3"
     assert sorted(p.name for p in job.iterdir()) == ["job.fchk", "job.gjf", "job.log"]
     assert str(job) in capsys.readouterr().err
+
+
+def test_job_directories_are_numbered_in_run_order(settings, tmp_path):
+    workdir = tmp_path / "runs"
+    workdir.mkdir()
+    (workdir / "0007-old-run").mkdir()
+    (workdir / "notes.txt").write_text("")
+    kept = RunSettings(settings.g16, settings.formchk, workdir=workdir)
+    for name in ("opt-H2", "freq-H2"):
+        run_job(kept, deck(H2, FORCE_JOB, keywords=""), name)
+    assert sorted(p.name for p in workdir.iterdir()) == [
+        "0007-old-run",
+        "0008-opt-H2",
+        "0009-freq-H2",
+        "notes.txt",
+    ]
+
+
+def test_taken_directory_moves_to_the_next_number(tmp_path, monkeypatch):
+    # Another run took 0001-freq-H2 after this one looked for the last number.
+    (tmp_path / "0001-freq-H2").mkdir()
+    monkeypatch.setattr(gaussian, "_last_number", lambda root: 0)
+    assert gaussian._numbered_directory(tmp_path, "freq-H2").name == "0002-freq-H2"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [("HCN-HNC TS", "ts-HCN-HNC_TS"), ("a/b:c", "ts-a_b_c"), ("", "ts-H2")],
+)
+def test_job_name(name, expected):
+    assert job_name("ts", H2.replace(name=name)) == expected

@@ -144,6 +144,15 @@ def label(mol: Molecule) -> str:
     return mol.name or formula(mol.symbols)
 
 
+def job_name(job: str, mol: Molecule) -> str:
+    """``<job>-<label>``, the readable part of a kept job directory's name.
+
+    Characters other than letters, digits, ``.``, ``_``, ``+`` and ``-`` in
+    the label become ``_``, so the name is a safe directory name.
+    """
+    return f"{job}-" + re.sub(r"[^A-Za-z0-9._+-]", "_", label(mol))
+
+
 # --- Route and deck ----------------------------------------------------------
 
 
@@ -464,12 +473,12 @@ def run_job(
     """Run Gaussian on ``deck`` in a new job directory, then ``formchk``.
 
     Without ``settings.workdir`` the directory is temporary and removed
-    afterwards; with it, a new subdirectory ``<name>-<random>`` keeps the
+    afterwards; with it, a new subdirectory ``<number>-<name>`` keeps the
     input, the log and the formatted checkpoint (the binary checkpoint is
-    removed once converted). ``formchk`` runs after a normal termination, or
-    after any failure but a timeout when ``formchk_on_failure`` is set. A run
-    that takes longer than ``settings.timeout`` is stopped and reported as a
-    failure.
+    removed once converted). Numbers count up from ``0001`` in run order.
+    ``formchk`` runs after a normal termination, or after any failure but a
+    timeout when ``formchk_on_failure`` is set. A run that takes longer than
+    ``settings.timeout`` is stopped and reported as a failure.
     """
     with _job_directory(settings.workdir, name) as jobdir:
         (jobdir / INPUT_NAME).write_text(deck, encoding="utf-8")
@@ -578,4 +587,32 @@ def _job_directory(workdir: str | os.PathLike[str] | None, name: str) -> Iterato
         return
     root = Path(workdir).absolute()
     root.mkdir(parents=True, exist_ok=True)
-    yield Path(tempfile.mkdtemp(prefix=f"{name}-", dir=root))
+    yield _numbered_directory(root, name)
+
+
+_NUMBERED = re.compile(r"(\d+)-")
+
+
+def _last_number(root: Path) -> int:
+    """The largest ``<number>-`` prefix among the entries of ``root``, or 0."""
+    numbers = [
+        int(m.group(1)) for p in root.iterdir() if (m := _NUMBERED.match(p.name))
+    ]
+    return max(numbers, default=0)
+
+
+def _numbered_directory(root: Path, name: str) -> Path:
+    """Create ``root/<number>-<name>`` with the next free number.
+
+    ``mkdir`` fails if the directory exists, so a name taken in the meantime
+    (by another run sharing ``root``) moves on to the next number.
+    """
+    number = _last_number(root) + 1
+    while True:
+        path = root / f"{number:04d}-{name}"
+        try:
+            path.mkdir()
+        except FileExistsError:
+            number += 1
+            continue
+        return path
