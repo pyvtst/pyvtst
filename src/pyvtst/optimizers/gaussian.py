@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 
-from pyvtst.core.elements import formula
 from pyvtst.core.level import LevelOfTheory, render_options
 from pyvtst.core.molecule import Molecule
 from pyvtst.ports.engine import Engine
@@ -122,7 +121,7 @@ class GaussianOptimizer:
         result = gaussian.run_job(
             self._settings,
             deck,
-            f"{title}-{formula(mol.symbols)}",
+            gaussian.job_name(title, mol),
             formchk_on_failure=True,
         )
         steps = [int(n) for n in re.findall(r"Step number\s+(\d+)", result.log)]

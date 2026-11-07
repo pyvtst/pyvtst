@@ -288,6 +288,6 @@ def test_kept_files(engine, fake_gaussian, tmp_path, capfd):
     workdir = tmp_path / "opt"
     GaussianOptimizer(workdir=workdir).minimize(h2(), engine)
     (job,) = workdir.iterdir()
-    assert job.name.startswith("opt-H2-")
+    assert job.name == "0001-opt-H2"
     assert {p.name for p in job.iterdir()} == {"job.gjf", "job.log", "job.fchk"}
     assert capfd.readouterr() == ("", "")
