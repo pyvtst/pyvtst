@@ -555,3 +555,13 @@ def test_documented_examples_load(write, doc):
     spec = load(write(example))
     assert spec.engine.type == "pyscf"
     assert len(spec.reactants) == 2
+
+
+def test_documented_gaussian_tables_load(write):
+    example, gaussian = toml_blocks(DOCS / "docs/user/inputfile.md")
+    head, rest = example.split("[engine]")
+    _, tail = rest.split("[reactants.r1]")
+    spec = load(write(head + gaussian + "\n[reactants.r1]" + tail))
+    assert spec.engine.type == "gaussian"
+    assert spec.optimizer is not None
+    assert spec.optimizer.kwargs["nprocs"] == 8

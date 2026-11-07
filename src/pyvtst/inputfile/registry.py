@@ -88,6 +88,18 @@ def _build_geometric(options: Mapping[str, Any]) -> Any:
     return GeometricOptimizer(**options)
 
 
+def _build_gaussian_engine(options: Mapping[str, Any]) -> Any:
+    from pyvtst.engines import GaussianEngine  # noqa: PLC0415
+
+    return GaussianEngine(**options)
+
+
+def _build_gaussian_optimizer(options: Mapping[str, Any]) -> Any:
+    from pyvtst.optimizers import GaussianOptimizer  # noqa: PLC0415
+
+    return GaussianOptimizer(**options)
+
+
 def _pyscf_entry() -> AdapterEntry:
     # The PySCF module imports PySCF itself only when an engine is built.
     from pyvtst.engines.pyscf import HessianMode, Reference  # noqa: PLC0415
@@ -138,8 +150,57 @@ def _geometric_entry() -> AdapterEntry:
     )
 
 
+# Gaussian optimizer options taken from the [engine] table, so that a
+# Gaussian engine and optimizer run with the same programs and resources.
+GAUSSIAN_SHARED_KEYS = ("nprocs", "memory", "executable", "formchk")
+
+
+def _gaussian_engine_entry() -> AdapterEntry:
+    from pyvtst.programs.gaussian import REFERENCES  # noqa: PLC0415
+
+    return AdapterEntry(
+        fields=(
+            Field("method", "str", required=True),
+            Field("basis", "str", required=True),
+            Field("keywords", "str", default=""),
+            Field("reference", "str", default="auto", choices=REFERENCES),
+            Field("nprocs", "int", default=1),
+            Field("memory", "str", default="2GB"),
+            Field("executable", "str", default=None),
+            Field("formchk", "str", default=None),
+            Field("workdir", "str", default=None),
+            Field("timeout", "float", default=None),
+            Field("verbose", "bool", default=False),
+        ),
+        build=_build_gaussian_engine,
+        path_keys=frozenset({"executable", "formchk", "workdir"}),
+    )
+
+
+def _gaussian_optimizer_entry() -> AdapterEntry:
+    """The optimizer's own keys; the schema adds :data:`GAUSSIAN_SHARED_KEYS`
+    from the Gaussian engine."""
+    from pyvtst.optimizers.gaussian import CONVERGENCE  # noqa: PLC0415
+
+    return AdapterEntry(
+        fields=(
+            Field("convergence", "str", default="tight", choices=CONVERGENCE),
+            Field("max_cycles", "int", default=100),
+            Field("workdir", "str", default=None),
+            Field("timeout", "float", default=None),
+            Field("verbose", "bool", default=False),
+        ),
+        build=_build_gaussian_optimizer,
+        path_keys=frozenset({"workdir"}),
+    )
+
+
 DEFAULT_REGISTRY = Registry(
-    engines={"pyscf": _pyscf_entry()},
-    optimizers={"geometric": _geometric_entry()},
+    engines={"gaussian": _gaussian_engine_entry(), "pyscf": _pyscf_entry()},
+    optimizers={
+        "gaussian": _gaussian_optimizer_entry(),
+        "geometric": _geometric_entry(),
+    },
 )
-"""The built-in adapters: engine ``"pyscf"`` and optimizer ``"geometric"``."""
+"""The built-in adapters: engines ``"gaussian"`` and ``"pyscf"``, optimizers
+``"gaussian"`` and ``"geometric"``."""

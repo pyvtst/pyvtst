@@ -23,3 +23,9 @@ Combine them as needed. The examples in this guide use:
 ```bash
 pip install "pyvtst[pyscf,geometric,hdf5,plot]"
 ```
+
+Gaussian 16 is not a Python package: `GaussianEngine` and `GaussianOptimizer`
+run an existing Gaussian install, which you license and install separately.
+PyVTST finds it through the `executable` argument, the `PYVTST_G16`
+environment variable or `g16` on `PATH` (and likewise `formchk`); see
+[Engines](engines.md#gaussian).

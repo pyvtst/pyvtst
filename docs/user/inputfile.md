@@ -117,10 +117,33 @@ of the Python class.
 | `type` | Required | Optional |
 |---|---|---|
 | engine `"pyscf"` | `method`, `basis` | `reference`, `hessian`, `fd_step`, `conv_tol`, `grid_level`, `max_cycle`, `max_memory_mb`, `verbose` |
+| engine `"gaussian"` | `method`, `basis` | `keywords`, `reference`, `nprocs`, `memory`, `executable`, `formchk`, `workdir`, `timeout`, `verbose` |
 | optimizer `"geometric"` | | `convergence`, `max_iterations`, `coordsys`, `workdir`, `verbose` |
+| optimizer `"gaussian"` | | `convergence`, `max_cycles`, `workdir`, `timeout`, `verbose` |
 
 See [Engines](engines.md) and [Geometry optimizers](optimization.md) for what
 each option does.
+
+The `"gaussian"` optimizer needs the `"gaussian"` engine, and takes `nprocs`,
+`memory`, `executable` and `formchk` from the `[engine]` table:
+
+```toml
+[engine]
+type = "gaussian"
+method = "B3LYP"
+basis = "6-31G(d)"
+keywords = "EmpiricalDispersion=GD3BJ"
+nprocs = 8
+memory = "16GB"
+# executable = "/opt/g16/g16"   # default: $PYVTST_G16, else g16 on PATH
+
+[optimizer]
+type = "gaussian"
+convergence = "verytight"
+```
+
+Unset `executable` and `formchk` are looked up as described in
+[Engines](engines.md#gaussian).
 
 ### `[mep]`
 
@@ -144,7 +167,7 @@ The path is computed when `[mep]` is present or a job needs one (CVT, ICVT,
 
 ## Paths
 
-Relative paths (`store`, `file`, `workdir`) are relative to the input file's
+Relative paths (`store`, `file`, `workdir`, `executable`, `formchk`) are relative to the input file's
 directory, not to the directory `pyvtst` is run from. `~` is the home
 directory.
 
