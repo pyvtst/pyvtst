@@ -11,11 +11,11 @@ Fit any `RateResult`:
 
 ```python
 result = rxn.rates([300, 400, 500, 700, 1000, 1500, 2000], theory="cvt")
-fit = result.fit_arrhenius()       # the modified Arrhenius form
-print(fit)                         # model, parameters with units, max deviation
-fit.A, fit.n, fit.Ea_kcal          # A in result.units, Ea in kcal/mol
-fit([350, 450])                    # k from the fit
-fit.activation_energy([300, 1000]) # Ea(T) = Ea + nRT, in kcal/mol
+fit = result.fit_arrhenius()  # the modified Arrhenius form
+print(fit)  # model, parameters with units, max deviation
+fit.A, fit.n, fit.Ea_kcal  # A in result.units, Ea in kcal/mol
+fit([350, 450])  # k from the fit
+fit.activation_energy([300, 1000])  # Ea(T) = Ea + nRT, in kcal/mol
 ```
 
 `print(fit)` gives:
