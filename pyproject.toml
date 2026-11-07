@@ -120,8 +120,8 @@ exclude_type_checking_imports = true
 
 # Hexagonal layering. Input files drive the Reaction facade, which sits above
 # the adapter packages (io, engines, optimizers, stores) and the plot module;
-# those sit above ports, which sit above core. Adapters do not import each
-# other.
+# those sit above programs (code for external programs that an engine and an
+# optimizer share), then ports, then core. Adapters do not import each other.
 # Parenthesised layers are optional, so planned packages can be listed now.
 [[tool.importlinter.contracts]]
 name = "Hexagonal layers"
@@ -131,6 +131,7 @@ layers = [
     "(inputfile)",
     "(reaction)",
     "io | (engines) | (optimizers) | (stores) | plot",
+    "(programs)",
     "(ports)",
     "core",
 ]
