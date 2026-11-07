@@ -14,6 +14,7 @@ from typing import Literal, cast
 import numpy as np
 import numpy.typing as npt
 
+from pyvtst.core.arrhenius import ArrheniusFit, _fit
 from pyvtst.core.elements import formula
 from pyvtst.core.internals import (
     Internal,
@@ -180,6 +181,21 @@ class RateResult:
             line += f"{float(self.kappa[i]):>10.4f}  {float(self.k[i]):>{width}.4e}"
             lines.append(line)
         return "\n".join(lines)
+
+    def fit_arrhenius(self, model: str = "modified") -> ArrheniusFit:
+        """Fit ``k`` over ``T`` to an Arrhenius form.
+
+        Same as :func:`pyvtst.fit_arrhenius` on ``T`` and ``k``, with the fit's
+        ``units`` set to this result's ``units``.
+
+        Args:
+            model: ``"arrhenius"`` or ``"modified"`` (default).
+
+        Raises:
+            ValueError: Unknown model, or fewer distinct temperatures than the
+                model has parameters.
+        """
+        return _fit(self.T, self.k, model, self.units, stacklevel=3)
 
 
 class Reaction:

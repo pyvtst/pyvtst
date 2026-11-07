@@ -6,6 +6,7 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 from pyvtst import units
+from pyvtst.core.arrhenius import ArrheniusFit, fit_arrhenius
 from pyvtst.core.mep import ReactionPath
 from pyvtst.core.molecule import Molecule
 
@@ -16,11 +17,13 @@ if TYPE_CHECKING:
 __version__ = "0.2.0"
 
 __all__ = [
+    "ArrheniusFit",
     "Molecule",
     "RateResult",
     "Reaction",
     "ReactionPath",
     "__version__",
+    "fit_arrhenius",
     "plot_free_energy",
     "plot_path",
     "plot_paths",

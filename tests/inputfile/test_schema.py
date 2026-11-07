@@ -494,6 +494,38 @@ def test_explicit_no_tunneling_and_case(write):
     assert spec.needs_path
 
 
+def test_no_arrhenius_fit_by_default(write):
+    assert load(write(PYSCF_INPUT)).rates[0].arrhenius is None
+
+
+def test_arrhenius_model_and_case(write):
+    rates = '[[rates]]\nT = [300, 400, 500]\narrhenius = "Modified"\n'
+    assert load(write(with_rates(rates))).rates[0].arrhenius == "modified"
+
+
+def test_explicit_no_arrhenius_fit(write):
+    rates = '[[rates]]\nT = 300\narrhenius = "none"\n'
+    assert load(write(with_rates(rates))).rates[0].arrhenius is None
+
+
+def test_unknown_arrhenius_model(write):
+    rates = '[[rates]]\nT = [300, 400, 500]\narrhenius = "kooij"\n'
+    error = only_error(
+        load_errors(write, with_rates(rates)), "rates[0].arrhenius: expected one of"
+    )
+    assert "'arrhenius'" in error
+    assert "'modified'" in error
+
+
+def test_too_few_temperatures_for_the_fit(write):
+    rates = '[[rates]]\nT = [300, 300, 500]\narrhenius = "modified"\n'
+    only_error(
+        load_errors(write, with_rates(rates)),
+        "rates[0].arrhenius: Arrhenius model 'modified' needs at least 3 distinct "
+        "temperatures, got 2",
+    )
+
+
 # Python API
 
 

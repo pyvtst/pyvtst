@@ -53,6 +53,7 @@ tunneling = "eckart"
 T = { start = 200, stop = 1000, step = 100 }
 theory = "cvt"
 tunneling = "sct"
+arrhenius = "modified"  # optional; fit k(T), see Arrhenius fits
 ```
 
 Run it with the `pyscf`, `geometric` and `hdf5` extras installed:
@@ -139,6 +140,7 @@ The path is computed when `[mep]` is present or a job needs one (CVT, ICVT,
 | `T` | number, array, or `{ start, stop, step }` | required | Temperatures in K; a range includes `stop` |
 | `theory` | string | `"tst"` | `"tst"`, `"cvt"`, `"icvt"` or `"muvt"` |
 | `tunneling` | string | `"none"` | `"none"`, `"wigner"`, `"eckart"`, `"zct"` or `"sct"` |
+| `arrhenius` | string | `"none"` | Fit k(T) to `"arrhenius"` or `"modified"` ([Arrhenius fits](arrhenius.md)); needs 2 or 3 distinct temperatures |
 
 ## Paths
 
@@ -152,8 +154,8 @@ directory.
 a header with the pyvtst version and date, the input file verbatim, the
 settings with every default filled in, the stationary points (energy in
 hartree, geometry in Ångström, frequencies in cm⁻¹ with imaginary ones marked
-`i`), the ZPE-corrected barrier, the reaction path, one rate table per job,
-the warnings, and a last line `pyvtst finished normally`.
+`i`), the ZPE-corrected barrier, the reaction path, one rate table per job
+(followed by its Arrhenius fit when `arrhenius` is set), the warnings, and a last line `pyvtst finished normally`.
 
 When the run computes a reaction path, its geometries go to `h3_mep.xyz` next
 to the report (`run1_mep.xyz` for `-o run1.out`): one frame per path point in

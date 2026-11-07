@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from pyvtst.core.arrhenius import MODELS, check_count
 from pyvtst.core.internals import Internal, validate_internals
 from pyvtst.core.mep import COORDINATES, METHODS
 from pyvtst.core.molecule import Molecule
@@ -99,11 +100,15 @@ class MEPSpec:
 
 @dataclass(frozen=True)
 class RateJob:
-    """One ``[[rates]]`` job."""
+    """One ``[[rates]]`` job.
+
+    ``arrhenius`` is the Arrhenius fit model, or ``None`` for no fit.
+    """
 
     T: tuple[float, ...]
     theory: str
     tunneling: str | None
+    arrhenius: str | None = None
 
     @property
     def needs_path(self) -> bool:
@@ -191,6 +196,7 @@ RATE_FIELDS = (
         default="none",
         choices=("none", *(t for t in TUNNELING if t is not None)),
     ),
+    Field("arrhenius", "str", default="none", choices=("none", *MODELS)),
 )
 
 T_RANGE_FIELDS = (
@@ -776,7 +782,14 @@ def _rate_jobs(ctx: _Context, value: object) -> tuple[RateJob, ...] | None:
         if temps is None or len(ctx.errors) > n_errors:
             continue
         tunneling = None if values["tunneling"] == "none" else values["tunneling"]
-        jobs.append(RateJob(temps, values["theory"], tunneling))
+        model = None if values["arrhenius"] == "none" else values["arrhenius"]
+        if model is not None:
+            try:
+                check_count(model, len(set(temps)))
+            except ValueError as exc:
+                ctx.error(_key(path, "arrhenius"), str(exc))
+                continue
+        jobs.append(RateJob(temps, values["theory"], tunneling, model))
     return tuple(jobs) if len(jobs) == len(items) else None
 
 

@@ -201,12 +201,16 @@ def _path(path: ReactionPath, trajectory: Path | None) -> list[str]:
 
 def _rates(log: RunLog) -> list[str]:
     lines: list[str] = []
-    for i, (job, result) in enumerate(
-        zip(log.spec.rates, log.results, strict=False), start=1
+    for i, (job, result, fit) in enumerate(
+        zip(log.spec.rates, log.results, log.fits, strict=False), start=1
     ):
         tunneling = job.tunneling if job.tunneling is not None else "none"
         lines.append(f"job {i}: theory {job.theory}, tunneling {tunneling}")
         lines.append(f"k in {result.units}")
         lines.extend(result.table().splitlines())
+        if isinstance(fit, str):
+            lines.extend(["", f"Arrhenius fit failed: {fit}"])
+        elif fit is not None:
+            lines.extend(["", *str(fit).splitlines()])
         lines.append("")
     return lines[:-1]
