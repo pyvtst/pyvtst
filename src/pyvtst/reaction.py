@@ -586,9 +586,11 @@ class Reaction:
 
         def compute(index: int, x: FloatArray) -> MEPPoint:
             mol = mol0.replace(coords=from_mass_scaled(mol0, x))
+            # The Hessian comes first: engines that compute energy and
+            # gradient in the same run (e.g. Gaussian) then run once per point.
+            hessian = self.engine.hessian(mol) if index % every == 0 else None
             energy = self.engine.energy(mol)
             gradient = self.engine.gradient(mol)
-            hessian = self.engine.hessian(mol) if index % every == 0 else None
             raw[index] = _PointRecord(index, mol, energy, gradient)
             return MEPPoint(
                 index,

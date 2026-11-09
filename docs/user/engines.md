@@ -2,8 +2,8 @@
 
 An engine computes energies, gradients and Hessians for a `Molecule`, at one
 level of theory. `Reaction` calls it for every optimization step, stationary
-point and path point. PyVTST ships an engine for PySCF, and any other program
-can be connected through the `Engine` protocol.
+point and path point. PyVTST ships engines for PySCF and Gaussian 16, and any
+other program can be connected through the `Engine` protocol.
 
 ## PySCF
 
@@ -57,6 +57,78 @@ basis set that lacks an element raises `ValueError`.
 `engine.level.key()` is a string identifying the settings that change a
 result, for use as a cache key. `max_cycle`, `max_memory_mb` and `verbose` are
 not part of it.
+
+## Gaussian
+
+`GaussianEngine` runs Gaussian 16 for each geometry, converts the checkpoint
+with `formchk` and reads the energy, gradient and Hessian from the formatted
+checkpoint. Gaussian is licensed separately; PyVTST neither ships nor
+downloads it. Importing `pyvtst.engines` works without Gaussian; only
+constructing a `GaussianEngine` needs it.
+
+```python
+from pyvtst.engines import GaussianEngine
+
+engine = GaussianEngine(
+    "B3LYP",
+    "def2SVP",
+    keywords="EmpiricalDispersion=GD3BJ Int=UltraFine",
+    nprocs=8,
+    memory="16GB",
+)
+engine.hessian(water)  # one Freq job
+engine.energy(water)  # served by the same job
+```
+
+Method, basis and `keywords` take any Gaussian names, written as in a route
+section. Case and repeated spaces in `keywords` do not matter. Keywords that
+name a job type or that the engine sets itself are rejected: `Opt`, `Freq`,
+`Force`, `SP`, `IRC`, `Scan`, `Geom`, `Guess`, `Units`, `NoSymm` and
+`Symmetry`. `Gen` and `GenECP` basis sets are not supported, since they need
+extra input sections.
+
+Keyword options:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `keywords` | `""` | Extra route keywords, e.g. `"SCF=Tight Int=UltraFine"` |
+| `reference` | `"auto"` | `"auto"` leaves it to Gaussian (restricted for singlets, unrestricted otherwise); `"restricted"` or `"unrestricted"` force it |
+| `nprocs` | `1` | Processors per job (`%NProcShared`) |
+| `memory` | `"2GB"` | Memory per job (`%Mem`) |
+| `executable` | `None` | The Gaussian executable; see the lookup order below |
+| `formchk` | `None` | The `formchk` utility; see the lookup order below |
+| `workdir` | `None` | Keep each job's input, log and formatted checkpoint in a new subdirectory here, named in run order (`0001-freq-HCN`, `0002-force-HCN`, ...); by default a temporary directory, removed afterwards |
+| `timeout` | `None` | Seconds after which a job is stopped and `EngineError` raised |
+| `verbose` | `False` | Pass Gaussian's own output through |
+
+The executables are found in this order, separately for each:
+
+1. The `executable` or `formchk` argument.
+2. The environment variable `PYVTST_G16` or `PYVTST_FORMCHK`.
+3. `g16` or `formchk` on `PATH`.
+
+An argument or a set variable that does not name an executable file is an
+error; PyVTST does not fall back to `PATH`, so it never runs a different
+Gaussian install than the one you chose. An empty variable counts as unset.
+
+Gaussian runs with your environment unchanged, so source `g16.profile` (or
+set `g16root`) as you would to run Gaussian by hand. Scratch files go to
+`GAUSS_SCRDIR` when it is set, and to the job's directory otherwise.
+
+Each geometry costs one Gaussian run. A `Force` job serves both the energy
+and the gradient, and a `Freq` job serves the Hessian together with the
+energy and the gradient. The engine keeps the last 8 results, and
+`compute_mep` asks for the Hessian first at each path point, so a path point
+is one `Freq` job. Jobs use `NoSymm` and coordinates in bohr, so results are
+in the molecule's own orientation.
+
+A job that ends without normal termination, a failed `formchk`, a missing
+result or a timeout raises `pyvtst.ports.EngineError`, with the end of the
+Gaussian log in the message. Results never depend on earlier calls: each job
+starts from Gaussian's default SCF guess.
+
+`engine.level` holds the method, basis, `keywords` and `reference`. The other
+options are not part of it, so they do not change cache keys.
 
 ## Other programs
 
