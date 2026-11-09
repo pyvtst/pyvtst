@@ -22,7 +22,8 @@ ADAPTER_SCRIPT = f"""
 import importlib, pkgutil, sys
 import pyvtst, pyvtst.plot
 pyvtst.plot_path, pyvtst.ReactionPath
-for name in ("pyvtst.ports", "pyvtst.engines", "pyvtst.optimizers", "pyvtst.stores"):
+for name in ("pyvtst.ports", "pyvtst.programs", "pyvtst.engines", "pyvtst.optimizers",
+             "pyvtst.stores"):
     pkg = importlib.import_module(name)
     for info in pkgutil.walk_packages(pkg.__path__, name + "."):
         importlib.import_module(info.name)
