@@ -23,7 +23,13 @@ from pyvtst.core.mep import COORDINATES, METHODS
 from pyvtst.core.molecule import Molecule
 from pyvtst.core.stationary import check_freq_scale
 from pyvtst.core.units import ANGSTROM_TO_BOHR
-from pyvtst.inputfile.registry import DEFAULT_REGISTRY, AdapterEntry, Field, Registry
+from pyvtst.inputfile.registry import (
+    DEFAULT_REGISTRY,
+    GAUSSIAN_SHARED_KEYS,
+    AdapterEntry,
+    Field,
+    Registry,
+)
 from pyvtst.io.xyz import read_xyz
 from pyvtst.reaction import (
     PATH_TUNNELING,
@@ -425,6 +431,8 @@ def _input(
     optimizer = None
     if top.get("optimizer") is not None:
         optimizer = _adapter(ctx, top["optimizer"], "optimizer", registry.optimizers)
+    if optimizer is not None and optimizer.type == "gaussian" and engine is not None:
+        optimizer = _gaussian_optimizer(ctx, optimizer, engine)
     mep = None
     if top.get("mep") is not None:
         mep = _mep(ctx, top["mep"], ts)
@@ -713,6 +721,31 @@ def _adapter(
     return AdapterSpec(
         type=name.lower(),
         options=tuple((f.name, values[f.name]) for f in entry.fields),
+    )
+
+
+def _gaussian_optimizer(
+    ctx: _Context, optimizer: AdapterSpec, engine: AdapterSpec
+) -> AdapterSpec | None:
+    """Pair the Gaussian optimizer with the Gaussian engine.
+
+    The optimizer runs at the engine's level with the engine's programs and
+    resources, so it takes :data:`GAUSSIAN_SHARED_KEYS` from the engine.
+    """
+    if engine.type != "gaussian":
+        ctx.error(
+            "optimizer.type",
+            f"the 'gaussian' optimizer needs the 'gaussian' engine, "
+            f"got engine type {engine.type!r}",
+        )
+        return None
+    shared = engine.kwargs
+    return AdapterSpec(
+        type=optimizer.type,
+        options=(
+            *optimizer.options,
+            *((key, shared[key]) for key in GAUSSIAN_SHARED_KEYS),
+        ),
     )
 
 

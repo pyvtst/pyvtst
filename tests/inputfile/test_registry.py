@@ -5,14 +5,20 @@ from dataclasses import replace
 
 import pytest
 
-from pyvtst.engines import PySCFEngine
+from pyvtst.engines import GaussianEngine, PySCFEngine
 from pyvtst.inputfile import DEFAULT_REGISTRY, Field, InputError, load
-from pyvtst.optimizers import GeometricOptimizer
+from pyvtst.optimizers import GaussianOptimizer, GeometricOptimizer
 from tests.inputfile.conftest import H3_INPUT, PYSCF_INPUT
 
 ADAPTERS = [
     ("pyscf", DEFAULT_REGISTRY.engines["pyscf"], PySCFEngine),
     ("geometric", DEFAULT_REGISTRY.optimizers["geometric"], GeometricOptimizer),
+    ("gaussian-engine", DEFAULT_REGISTRY.engines["gaussian"], GaussianEngine),
+    (
+        "gaussian-optimizer",
+        DEFAULT_REGISTRY.optimizers["gaussian"],
+        GaussianOptimizer,
+    ),
 ]
 
 
@@ -84,8 +90,8 @@ def test_unknown_adapter_type(write):
     errors = load_errors(write, engine_section('[engine]\ntype = "orca"\n'))
     assert len(errors) == 1
     assert (
-        "engine.type: unknown engine type 'orca'; registered engines: 'pyscf'"
-        in errors[0]
+        "engine.type: unknown engine type 'orca'; registered engines: "
+        "'gaussian', 'pyscf'" in errors[0]
     )
 
 
@@ -110,7 +116,7 @@ def test_missing_required_option(write):
 
 def test_missing_type(write):
     errors = load_errors(write, engine_section('[engine]\nmethod = "HF"\n'))
-    assert "engine.type: missing required key (one of 'pyscf')" in errors[0]
+    assert "engine.type: missing required key (one of 'gaussian', 'pyscf')" in errors[0]
 
 
 def test_bad_choice(write):
