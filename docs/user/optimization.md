@@ -2,9 +2,9 @@
 
 An optimizer locates minima and first-order saddle points, calling an engine
 for the energies, gradients and Hessians it needs. `Reaction` uses it to
-optimize the reactants, products and transition state. PyVTST ships an
-optimizer for geomeTRIC, and any other can be connected through the
-`Optimizer` protocol.
+optimize the reactants, products and transition state. PyVTST ships
+optimizers for geomeTRIC and Gaussian 16, and any other can be connected
+through the `Optimizer` protocol.
 
 ## Optimizing the stationary points
 
@@ -57,6 +57,42 @@ which costs one engine Hessian per transition state.
 geomeTRIC changes logging configuration process-wide while it runs, so do not
 run optimizers from several threads at once.
 
+## Gaussian
+
+`GaussianOptimizer` runs Gaussian's own `Opt`, at the level of theory of a
+`GaussianEngine` (see [Quantum chemistry engines](engines.md)). Minima use
+`Opt`, and transition states `Opt=(TS,CalcFC,NoEigenTest)`: a Hessian at the
+guess, and no stop on a wrong number of negative eigenvalues, since
+`Reaction` checks the imaginary frequencies afterwards.
+
+```python
+from pyvtst.engines import GaussianEngine
+from pyvtst.optimizers import GaussianOptimizer
+
+engine = GaussianEngine("B3LYP", "def2SVP", nprocs=8, memory="16GB")
+optimizer = GaussianOptimizer(convergence="verytight", nprocs=8, memory="16GB")
+rxn = Reaction([h2, h], h3_guess, engine, optimizer=optimizer, store="h3.h5")
+```
+
+The optimizer works only with a Gaussian engine; any other engine raises
+`TypeError`. It takes method, basis, keywords and reference from the engine,
+but its own run settings: `nprocs`, `memory`, `executable`, `formchk`,
+`workdir`, `timeout` and `verbose` mean the same as for the engine and have
+the same defaults and executable lookup.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `convergence` | `"tight"` | `"default"`, `"tight"` or `"verytight"`: Gaussian's standard criteria, `Opt=Tight` or `Opt=VeryTight` |
+| `max_cycles` | `100` | Maximum number of optimization steps (`MaxCycles`) |
+
+Only `convergence` is part of the cache key. A result is accepted when
+Gaussian reports a stationary point. Gaussian applies its criteria to forces
+in redundant internal coordinates, so the largest Cartesian gradient
+component of a `"tight"` result can be slightly above geomeTRIC's
+`GAU_TIGHT` threshold; use `"verytight"` when that matters. Reaching
+`max_cycles` raises `ConvergenceError`, with the last geometry in
+`last_molecule`; any other Gaussian failure raises `EngineError`.
+
 ## Checking the stationary points
 
 After optimization each species is checked by its imaginary frequencies.
@@ -95,7 +131,8 @@ except ConvergenceError as exc:
 
 `last_molecule` can be a rejected trial step rather than the best point
 found, so check it before using it as a new guess. With geomeTRIC, raising
-`max_iterations` or switching `coordsys` often helps. A failed SCF in the engine raises
+`max_iterations` or switching `coordsys` often helps; with Gaussian, raise
+`max_cycles`. A failed SCF in the engine raises
 `EngineError` instead; see [Quantum chemistry engines](engines.md).
 
 ## Other optimizers
