@@ -18,6 +18,10 @@ engine = CachedEngine(PySCFEngine("B3LYP", "def2-SVP"), HDF5Store("results.h5"))
 engine.hessian(h2)  # computed once, then read from results.h5
 ```
 
+On a miss the engine runs once and every result it gives is stored: a Hessian
+request also stores the energy and gradient at that geometry, and an energy
+request also stores the gradient.
+
 A `CachedEngine` passed to `Reaction` is used as it is: its results stay in
 its own store, and the `Reaction`'s optimized geometries go to `store=`.
 

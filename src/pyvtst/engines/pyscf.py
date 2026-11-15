@@ -11,6 +11,7 @@ import numpy.typing as npt
 from pyvtst.core.finite_difference import fd_hessian
 from pyvtst.core.level import LevelOfTheory, OptionValue
 from pyvtst.core.molecule import Molecule
+from pyvtst.ports.engine import Engine, EngineResult
 from pyvtst.ports.errors import EngineError
 
 FloatArray = npt.NDArray[np.float64]
@@ -31,7 +32,7 @@ def _import_pyscf() -> Any:
     return pyscf
 
 
-class PySCFEngine:
+class PySCFEngine(Engine):
     """Energies, gradients and Hessians from PySCF.
 
     Args:
@@ -56,6 +57,8 @@ class PySCFEngine:
         verbose: Print PySCF's output.
 
     Each call runs a fresh SCF, so results never depend on earlier calls.
+    :meth:`compute` takes the energy, gradient and analytic Hessian from one
+    SCF; :meth:`energy` alone skips the gradient.
     """
 
     def __init__(
@@ -120,27 +123,38 @@ class PySCFEngine:
     def level(self) -> LevelOfTheory:
         return self._level
 
+    def compute(self, mol: Molecule, *, hessian: bool) -> EngineResult:
+        if hessian and not self._analytic_hessian:
+            energy, gradient = self._energy_gradient(mol)
+            full = fd_hessian(
+                lambda x: self._energy_gradient(mol.replace(coords=x))[1],
+                mol.coords,
+                self._fd_step,
+            )
+            return EngineResult(energy, gradient, full)
+        mf, post = self._run(mol)
+        energy, gradient = self._results(mol, mf, post)
+        if not hessian:
+            return EngineResult(energy, gradient)
+        n = mol.n_atoms
+        h = np.asarray(mf.Hessian().kernel(), dtype=np.float64)
+        full = h.transpose(0, 2, 1, 3).reshape(3 * n, 3 * n).copy()
+        return EngineResult(energy, gradient, full)
+
     def energy(self, mol: Molecule) -> float:
         mf, post = self._run(mol)
         return float(post.e_tot if post is not None else mf.e_tot)
 
-    def gradient(self, mol: Molecule) -> FloatArray:
-        mf, post = self._run(mol)
+    def _energy_gradient(self, mol: Molecule) -> tuple[float, FloatArray]:
+        """Energy and gradient from a fresh SCF (and MP2)."""
+        return self._results(mol, *self._run(mol))
+
+    def _results(self, mol: Molecule, mf: Any, post: Any) -> tuple[float, FloatArray]:
+        """Energy and gradient from a converged SCF and its MP2, if any."""
         solver = post if post is not None else mf
         grad = solver.nuc_grad_method().kernel()
-        return np.array(grad, dtype=np.float64).reshape(mol.n_atoms, 3)
-
-    def hessian(self, mol: Molecule) -> FloatArray:
-        if not self._analytic_hessian:
-            return fd_hessian(
-                lambda x: self.gradient(mol.replace(coords=x)),
-                mol.coords,
-                self._fd_step,
-            )
-        mf, _ = self._run(mol)
-        n = mol.n_atoms
-        h = np.asarray(mf.Hessian().kernel(), dtype=np.float64)
-        return h.transpose(0, 2, 1, 3).reshape(3 * n, 3 * n).copy()
+        energy = float(solver.e_tot)
+        return energy, np.array(grad, dtype=np.float64).reshape(mol.n_atoms, 3)
 
     def _restricted(self, mol: Molecule) -> bool:
         if self._reference == "restricted" and mol.mult != 1:

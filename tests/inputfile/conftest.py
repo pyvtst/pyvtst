@@ -3,7 +3,7 @@
 import pytest
 
 from pyvtst.inputfile import DEFAULT_REGISTRY, AdapterEntry, Field
-from pyvtst.ports import ConvergenceError, OptimizationResult
+from pyvtst.ports import ConvergenceError, Engine, OptimizationResult
 from tests.fakes.leps import R0, LEPSEngine, saddle_distance
 
 # H2 + H on the LEPS surface. The "exact" optimizer replaces the guesses with
@@ -77,8 +77,8 @@ T = 300
 '''
 
 
-class CountingLEPS:
-    """The LEPS engine, counting calls; raises ``error`` on the first call if set."""
+class CountingLEPS(Engine):
+    """The LEPS engine, counting runs; raises ``error`` on the first run if set."""
 
     def __init__(self, error=None):
         self.inner = LEPSEngine()
@@ -89,22 +89,11 @@ class CountingLEPS:
     def level(self):
         return self.inner.level
 
-    def _count(self):
+    def compute(self, mol, *, hessian):
         if self.error is not None:
             raise self.error
         self.calls += 1
-
-    def energy(self, mol):
-        self._count()
-        return self.inner.energy(mol)
-
-    def gradient(self, mol):
-        self._count()
-        return self.inner.gradient(mol)
-
-    def hessian(self, mol):
-        self._count()
-        return self.inner.hessian(mol)
+        return self.inner.compute(mol, hessian=hessian)
 
 
 class ExactOptimizer:

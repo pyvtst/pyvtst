@@ -181,10 +181,8 @@ def _bridge(geometric: Any, mol: Molecule, engine: Engine) -> Any:
         def calc_new(self, coords: FloatArray, dirname: str) -> dict[str, Any]:
             m = mol.replace(coords=np.reshape(coords, (-1, 3)))
             self.last_molecule = m
-            return {
-                "energy": engine.energy(m),
-                "gradient": np.ravel(engine.gradient(m)),
-            }
+            result = engine.compute(m, hessian=False)
+            return {"energy": result.energy, "gradient": np.ravel(result.gradient)}
 
     return Bridge()
 

@@ -20,42 +20,37 @@ from pyvtst.core.units import BOLTZMANN_AU, HARTREE_TO_KCAL_PER_MOL
 from pyvtst.core.vib import curvilinear_generalized_modes, generalized_normal_modes
 from pyvtst.engines import CachedEngine
 from pyvtst.optimizers import GeometricOptimizer
-from pyvtst.ports import ConvergenceError, OptimizationResult
+from pyvtst.ports import ConvergenceError, Engine, OptimizationResult
 from pyvtst.reaction import THEORIES
 from pyvtst.stores import MemoryStore
 from tests.fakes.leps import R0, LEPSEngine, collinear_h3, saddle_distance
 
 
-class CountingEngine:
-    """The LEPS engine, counting calls per method.
+class CountingEngine(Engine):
+    """The LEPS engine, counting its runs.
 
-    With ``fail_after``, gradient calls beyond that many raise, like a crash.
+    Runs are counted under ``"compute"``, and those with a Hessian also under
+    ``"hessian"``. With ``fail_after``, runs beyond that many raise, like a
+    crash.
     """
 
     def __init__(self, fail_after=None):
         self.inner = LEPSEngine()
         self.calls: Counter[str] = Counter()
-        self.gradient_coords: list[np.ndarray] = []
+        self.computed_coords: list[np.ndarray] = []
         self.fail_after = fail_after
 
     @property
     def level(self):
         return self.inner.level
 
-    def energy(self, mol):
-        self.calls["energy"] += 1
-        return self.inner.energy(mol)
-
-    def gradient(self, mol):
-        if self.fail_after is not None and self.calls["gradient"] >= self.fail_after:
+    def compute(self, mol, *, hessian):
+        if self.fail_after is not None and self.calls["compute"] >= self.fail_after:
             raise RuntimeError("engine crashed")
-        self.calls["gradient"] += 1
-        self.gradient_coords.append(np.array(mol.coords))
-        return self.inner.gradient(mol)
-
-    def hessian(self, mol):
-        self.calls["hessian"] += 1
-        return self.inner.hessian(mol)
+        self.calls["compute"] += 1
+        self.calls["hessian"] += hessian
+        self.computed_coords.append(np.array(mol.coords))
+        return self.inner.compute(mol, hessian=hessian)
 
 
 class CountingOptimizer:
@@ -547,6 +542,11 @@ def exact_optimizer():
     )
 
 
+# Engine runs before mep_reaction's path starts: the energy and Hessian of H2,
+# the energy of H, and the energy and Hessian of the transition state.
+PRE_PATH_RUNS = 5
+
+
 def mep_reaction(engine, store=None, masses=(None, None, None), freq_scale=1.0):
     """H2 + H on LEPS with exact stationary points; masses per role."""
     h2_masses, h_masses, ts_masses = masses
@@ -859,17 +859,19 @@ def store_factory(request, tmp_path):
 
 
 def test_resume_after_interruption(store_factory):
-    crashing = CountingEngine(fail_after=15)
+    # Five runs characterize the species (see PRE_PATH_RUNS); the transition
+    # state's Hessian run also gives the gradient the path starts from.
+    crashing = CountingEngine(fail_after=PRE_PATH_RUNS + 15)
     with pytest.raises(RuntimeError, match="crashed"):
         mep_reaction(crashing, store_factory()).compute_mep()
-    stored = crashing.gradient_coords
+    stored = crashing.computed_coords[PRE_PATH_RUNS:]
 
     engine = CountingEngine()
     resumed = mep_reaction(engine, store_factory()).compute_mep()
-    for coords in engine.gradient_coords:
+    for coords in engine.computed_coords:
         assert not any(np.allclose(coords, c, rtol=0, atol=1e-9) for c in stored)
-    # Every point but the 15 stored ones, plus the transition state.
-    assert engine.calls["gradient"] == len(resumed) - 1 - 15 + 1
+    # Every point but the transition state and the 15 stored ones.
+    assert engine.calls["compute"] == len(resumed) - 1 - 15
     assert resumed == mep_reaction(LEPSEngine()).compute_mep()
 
 
@@ -879,7 +881,7 @@ def test_extending_the_range():
     engine = CountingEngine()
     wide = mep_reaction(engine, store).compute_mep(s_min=-0.4, s_max=0.4)
     new = np.sum(np.abs(wide.s) > 0.2 + 1e-9)
-    assert engine.calls["gradient"] == new == 40
+    assert engine.calls["compute"] == new == 40
     assert engine.calls["hessian"] == new
     assert wide == mep_reaction(LEPSEngine()).compute_mep(s_min=-0.4, s_max=0.4)
 
@@ -900,7 +902,7 @@ def test_different_step_size_is_a_different_path():
     engine = CountingEngine()
     coarse = mep_reaction(engine, store).compute_mep(ds=0.02)
     assert len(coarse) == 51
-    assert engine.calls["gradient"] == 50
+    assert engine.calls["compute"] == 50
     prefixes = {k.rsplit("/", 2)[0] for k in store.keys("mep/")}
     assert len(prefixes) == 2
 
@@ -913,8 +915,9 @@ def test_another_engine_does_not_reuse_optimizations_or_path_points():
     rxn = mep_reaction(engine, store)
     other = rxn.compute_mep(-0.1, 0.1)
     assert [kind for kind, _ in rxn.optimizer.calls] == ["minimize", "saddle"]
-    # Every point but the transition state is traced again.
-    assert engine.calls["gradient"] == len(other)
+    # The species are characterized and every point but the transition state
+    # is traced again.
+    assert engine.calls["compute"] == PRE_PATH_RUNS + len(other) - 1
     assert len({k.rsplit("/", 2)[0] for k in store.keys("mep/")}) == 2
     assert other == path
 
