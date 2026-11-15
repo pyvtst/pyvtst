@@ -1,7 +1,7 @@
 """Ports: the protocols and value types that adapters implement."""
 
 from pyvtst.core.level import LevelOfTheory
-from pyvtst.ports.engine import Engine
+from pyvtst.ports.engine import Engine, EngineResult
 from pyvtst.ports.errors import ConvergenceError, EngineError
 from pyvtst.ports.optimizer import OptimizationResult, Optimizer
 from pyvtst.ports.store import (
@@ -15,6 +15,7 @@ __all__ = [
     "ConvergenceError",
     "Engine",
     "EngineError",
+    "EngineResult",
     "LevelOfTheory",
     "OptimizationResult",
     "Optimizer",

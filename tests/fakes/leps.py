@@ -27,7 +27,7 @@ import scipy.optimize
 from pyvtst import Molecule
 from pyvtst.core.finite_difference import fd_hessian
 from pyvtst.core.units import ANGSTROM_TO_BOHR, EV_TO_HARTREE
-from pyvtst.ports import LevelOfTheory
+from pyvtst.ports import Engine, EngineResult, LevelOfTheory
 
 FloatArray = npt.NDArray[np.float64]
 
@@ -51,7 +51,7 @@ def _pair(r: float) -> tuple[float, float, float, float]:
     return q, j, dq, dj
 
 
-class LEPSEngine:
+class LEPSEngine(Engine):
     """LEPS H + H2 surface for 1, 2 or 3 hydrogen atoms in any 3D geometry.
 
     One atom has energy 0 and two atoms follow the Morse curve. Charge and
@@ -66,16 +66,16 @@ class LEPSEngine:
     def level(self) -> LevelOfTheory:
         return self._level
 
-    def energy(self, mol: Molecule) -> float:
-        return self._energy_gradient(mol)[0]
-
-    def gradient(self, mol: Molecule) -> FloatArray:
-        return self._energy_gradient(mol)[1]
-
-    def hessian(self, mol: Molecule) -> FloatArray:
-        return fd_hessian(
-            lambda x: self.gradient(mol.replace(coords=x)), mol.coords, 1e-4
+    def compute(self, mol: Molecule, *, hessian: bool) -> EngineResult:
+        energy, gradient = self._energy_gradient(mol)
+        if not hessian:
+            return EngineResult(energy, gradient)
+        full = fd_hessian(
+            lambda x: self._energy_gradient(mol.replace(coords=x))[1],
+            mol.coords,
+            1e-4,
         )
+        return EngineResult(energy, gradient, full)
 
     def _energy_gradient(self, mol: Molecule) -> tuple[float, FloatArray]:
         if any(s != "H" for s in mol.symbols):

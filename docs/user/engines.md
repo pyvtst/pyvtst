@@ -24,6 +24,7 @@ engine = PySCFEngine("B3LYP", "def2-SVP")
 engine.energy(water)  # hartree
 engine.gradient(water)  # hartree/bohr, shape (3, 3)
 engine.hessian(water)  # hartree/bohr², shape (9, 9), not mass-weighted
+engine.compute(water, hessian=True)  # all three from one SCF
 ```
 
 The molecule's charge and multiplicity are used as given. Singlets get a
@@ -76,8 +77,8 @@ engine = GaussianEngine(
     nprocs=8,
     memory="16GB",
 )
-engine.hessian(water)  # one Freq job
-engine.energy(water)  # served by the same job
+result = engine.compute(water, hessian=True)  # one Freq job
+result.energy, result.gradient, result.hessian
 ```
 
 Method, basis and `keywords` take any Gaussian names, written as in a route
@@ -115,11 +116,12 @@ Gaussian runs with your environment unchanged, so source `g16.profile` (or
 set `g16root`) as you would to run Gaussian by hand. Scratch files go to
 `GAUSS_SCRDIR` when it is set, and to the job's directory otherwise.
 
-Each geometry costs one Gaussian run. A `Force` job serves both the energy
-and the gradient, and a `Freq` job serves the Hessian together with the
-energy and the gradient. The engine keeps the last 8 results, and
-`compute_mep` asks for the Hessian first at each path point, so a path point
-is one `Freq` job. Jobs use `NoSymm` and coordinates in bohr, so results are
+Each call runs one Gaussian job: a `Force` job for `energy`, `gradient` and
+`compute(mol, hessian=False)`, and a `Freq` job for `hessian` and
+`compute(mol, hessian=True)`. The engine keeps no results itself;
+`Reaction` and `CachedEngine` store every result a job gives, so after a
+`Freq` job the energy and gradient at that geometry cost nothing, and a path
+point is one `Freq` job. Jobs use `NoSymm` and coordinates in bohr, so results are
 in the molecule's own orientation.
 
 A job that ends without normal termination, a failed `formchk`, a missing
@@ -132,31 +134,33 @@ options are not part of it, so they do not change cache keys.
 
 ## Other programs
 
-`Reaction` accepts any object with the methods of the `Engine` protocol in
-`pyvtst.ports`. All values are in atomic units:
+`Reaction` accepts any engine that implements the `Engine` protocol in
+`pyvtst.ports`. Subclass `Engine` and write `level` and `compute`; `energy`,
+`gradient` and `hessian` are inherited as wrappers over `compute`. All values
+are in atomic units:
 
 ```python
-import numpy as np
 from pyvtst import Molecule
-from pyvtst.ports import LevelOfTheory
+from pyvtst.ports import Engine, EngineResult, LevelOfTheory
 
 
-class MyEngine:
+class MyEngine(Engine):
     @property
     def level(self) -> LevelOfTheory:
         # Every setting that can change a result belongs here: it is the cache key.
         return LevelOfTheory("ccsd(t)", "cc-pvtz")
 
-    def energy(self, mol: Molecule) -> float:
-        raise NotImplementedError  # hartree
-
-    def gradient(self, mol: Molecule) -> np.ndarray:
-        raise NotImplementedError  # hartree/bohr, shape (N, 3)
-
-    def hessian(self, mol: Molecule) -> np.ndarray:
-        # hartree/bohr², shape (3N, 3N), not mass-weighted
+    def compute(self, mol: Molecule, *, hessian: bool) -> EngineResult:
+        # energy in hartree; gradient in hartree/bohr, shape (N, 3);
+        # Hessian in hartree/bohr², shape (3N, 3N), not mass-weighted, or None
+        # when hessian is false.
         raise NotImplementedError
 ```
+
+`compute` returns everything one calculation gives, and the cache stores all
+of it, so a program that writes the energy, gradient and Hessian in one run
+is run once per geometry. Override `energy`, `gradient` or `hessian` when one
+of them is cheaper on its own.
 
 Use the molecule's `charge` and `mult`, leave the molecule unchanged, and
 raise `pyvtst.ports.EngineError` when a calculation cannot give a trustworthy

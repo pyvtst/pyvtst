@@ -13,6 +13,7 @@ pytest.importorskip("geometric")
 from pyvtst.optimizers import GeometricOptimizer
 from pyvtst.ports import (
     ConvergenceError,
+    Engine,
     EngineError,
     LevelOfTheory,
     Optimizer,
@@ -33,8 +34,8 @@ def angle_deg(mol):
     return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
 
 
-class FailingEngine:
-    """Delegates to LEPS, then raises a fixed EngineError on the third energy."""
+class FailingEngine(Engine):
+    """Delegates to LEPS, then raises a fixed EngineError on the third run."""
 
     def __init__(self, inner):
         self.inner = inner
@@ -45,17 +46,11 @@ class FailingEngine:
     def level(self):
         return LevelOfTheory("failing", "none")
 
-    def energy(self, mol):
+    def compute(self, mol, *, hessian):
         self.calls += 1
         if self.calls == 3:
             raise self.error
-        return self.inner.energy(mol)
-
-    def gradient(self, mol):
-        return self.inner.gradient(mol)
-
-    def hessian(self, mol):
-        return self.inner.hessian(mol)
+        return self.inner.compute(mol, hessian=hessian)
 
 
 def test_satisfies_protocol():

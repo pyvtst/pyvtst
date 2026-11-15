@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -11,7 +11,7 @@ import numpy.typing as npt
 from pyvtst.core.keys import cache_key, molecule_key
 from pyvtst.core.level import LevelOfTheory
 from pyvtst.core.molecule import Molecule
-from pyvtst.ports.engine import Engine
+from pyvtst.ports.engine import Engine, EngineResult
 from pyvtst.ports.store import Record, Store, Value
 
 FloatArray = npt.NDArray[np.float64]
@@ -27,6 +27,10 @@ class CachedEngine:
         engine_id: Identity of the wrapped engine in cache keys. Defaults to
             its fully qualified class name; pin it to keep a cache valid
             across a class rename.
+
+    On a miss the wrapped engine's :meth:`~pyvtst.ports.Engine.compute` runs
+    once, and every result it returns is stored: a Hessian request also stores
+    the energy and gradient, and an energy request also stores the gradient.
 
     A result is reused when the result kind, the molecule (without masses,
     which Born-Oppenheimer results do not depend on), the level of theory and
@@ -52,40 +56,76 @@ class CachedEngine:
     def level(self) -> LevelOfTheory:
         return self._engine.level
 
+    def compute(self, mol: Molecule, *, hessian: bool) -> EngineResult:
+        energy = self._stored("energy", mol, _energy)
+        gradient = self._stored("gradient", mol, _gradient)
+        full = self._stored("hessian", mol, _hessian) if hessian else None
+        if energy is None or gradient is None or (hessian and full is None):
+            return self._computed(mol, hessian=hessian)
+        return EngineResult(energy, gradient, full)
+
     def energy(self, mol: Molecule) -> float:
-        return self._cached("energy", mol, self._engine.energy, _energy)
+        energy = self._stored("energy", mol, _energy)
+        if energy is None:
+            return self._computed(mol, hessian=False).energy
+        return energy
 
     def gradient(self, mol: Molecule) -> FloatArray:
-        return self._cached("gradient", mol, self._engine.gradient, _gradient)
+        gradient = self._stored("gradient", mol, _gradient)
+        if gradient is None:
+            return self._computed(mol, hessian=False).gradient
+        return gradient
 
     def hessian(self, mol: Molecule) -> FloatArray:
-        return self._cached("hessian", mol, self._engine.hessian, _hessian)
+        full = self._stored("hessian", mol, _hessian)
+        if full is None:
+            # _computed with hessian=True always returns a Hessian.
+            return cast(FloatArray, self._computed(mol, hessian=True).hessian)
+        return full
 
-    def _cached(
-        self,
-        kind: str,
-        mol: Molecule,
-        compute: Callable[[Molecule], object],
-        check: Callable[[object, Molecule], T],
-    ) -> T:
+    def _key(self, kind: str, mol: Molecule) -> str:
         level = self._engine.level
-        key = cache_key(kind, mol, level, include_masses=False, engine=self.engine_id)
-        record = self._store.get(key)
-        if record is not None:
-            hit = self._verified(record, kind, mol, level, check)
-            if hit is not None:
-                return hit
-        result = check(compute(mol), mol)
-        self._store.put(
-            key,
-            {
-                kind: result,
-                "level": level.key(),
-                "engine": self.engine_id,
-                "symbols": " ".join(mol.symbols),
-                "coords": np.array(mol.coords),
-            },
+        return cache_key(kind, mol, level, include_masses=False, engine=self.engine_id)
+
+    def _stored(
+        self, kind: str, mol: Molecule, check: Callable[[object, Molecule], T]
+    ) -> T | None:
+        """Return the stored result of this kind, or None if there is none."""
+        record = self._store.get(self._key(kind, mol))
+        if record is None:
+            return None
+        return self._verified(record, kind, mol, self._engine.level, check)
+
+    def _computed(self, mol: Molecule, *, hessian: bool) -> EngineResult:
+        """Run the wrapped engine once and store every result it returns."""
+        raw = self._engine.compute(mol, hessian=hessian)
+        if not isinstance(raw, EngineResult):
+            raise ValueError(
+                f"compute: expected an EngineResult, got {type(raw).__name__}"
+            )
+        if hessian and raw.hessian is None:
+            raise ValueError("hessian: compute(hessian=True) returned no Hessian")
+        # Every result is checked before any is stored.
+        result = EngineResult(
+            _energy(raw.energy, mol),
+            _gradient(raw.gradient, mol),
+            None if raw.hessian is None else _hessian(raw.hessian, mol),
         )
+        level = self._engine.level
+        inputs: Record = {
+            "level": level.key(),
+            "engine": self.engine_id,
+            "symbols": " ".join(mol.symbols),
+            "coords": np.array(mol.coords),
+        }
+        values: dict[str, Value | None] = {
+            "energy": result.energy,
+            "gradient": result.gradient,
+            "hessian": result.hessian,
+        }
+        for kind, value in values.items():
+            if value is not None:
+                self._store.put(self._key(kind, mol), {kind: value, **inputs})
         return result
 
     def _verified(

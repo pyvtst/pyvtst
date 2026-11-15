@@ -129,39 +129,36 @@ def test_results_match_the_reference_surface(engine):
     np.testing.assert_array_equal(hessian, hessian.T)
 
 
-def test_returned_arrays_are_copies(engine, fake_gaussian):
+def test_force_job_gives_energy_and_gradient(engine, fake_gaussian):
     mol = tilted_h3()
-    engine.hessian(mol)
-    engine.gradient(mol)[:] = 0.0
-    engine.hessian(mol)[:] = 0.0
-    assert np.any(engine.gradient(mol) != 0.0)
-    assert np.any(engine.hessian(mol) != 0.0)
-    assert fake_gaussian.count == 1
-
-
-def test_energy_and_gradient_share_a_run(engine, fake_gaussian):
-    mol = tilted_h3()
-    engine.energy(mol)
-    engine.gradient(mol)
+    result = engine.compute(mol, hessian=False)
     assert fake_gaussian.count == 1
     assert " Force " in fake_gaussian.routes()[0]
+    assert result.hessian is None
+    leps = LEPSEngine()
+    assert result.energy == pytest.approx(leps.energy(mol), abs=1e-8)
+    np.testing.assert_allclose(result.gradient, leps.gradient(mol), atol=1e-8)
 
 
-def test_hessian_serves_energy_and_gradient(engine, fake_gaussian):
+def test_freq_job_gives_all_three(engine, fake_gaussian):
     mol = tilted_h3()
-    engine.hessian(mol)
-    engine.energy(mol)
-    engine.gradient(mol)
+    result = engine.compute(mol, hessian=True)
     assert fake_gaussian.count == 1
     assert " Freq=NoRaman " in fake_gaussian.routes()[0]
+    leps = LEPSEngine()
+    assert result.energy == pytest.approx(leps.energy(mol), abs=1e-8)
+    np.testing.assert_allclose(result.gradient, leps.gradient(mol), atol=1e-8)
+    np.testing.assert_allclose(result.hessian, leps.hessian(mol), atol=1e-8)
 
 
-def test_hessian_after_gradient_runs_freq(engine, fake_gaussian):
+def test_each_call_runs_a_job(engine, fake_gaussian):
     mol = tilted_h3()
+    engine.energy(mol)
     engine.gradient(mol)
     engine.hessian(mol)
-    engine.energy(mol)
-    assert fake_gaussian.count == 2
+    routes = fake_gaussian.routes()
+    assert len(routes) == 3
+    assert [" Freq=NoRaman " in r for r in routes] == [False, False, True]
 
 
 def test_results_do_not_depend_on_the_order_of_requests(fake_gaussian):
@@ -172,22 +169,6 @@ def test_results_do_not_depend_on_the_order_of_requests(fake_gaussian):
     h2 = second.hessian(mol)
     assert second.energy(mol) == e1
     np.testing.assert_array_equal(h1, h2)
-
-
-def test_charge_and_multiplicity_are_part_of_the_memo(engine, fake_gaussian):
-    mol = tilted_h3()
-    engine.energy(mol)
-    engine.energy(mol.replace(charge=1, mult=1))
-    assert fake_gaussian.count == 2
-
-
-def test_old_runs_are_dropped(engine, fake_gaussian):
-    first = tilted_h3()
-    engine.energy(first)
-    for k in range(8):
-        engine.energy(first.replace(coords=first.coords + 0.01 * (k + 1)))
-    engine.energy(first)
-    assert fake_gaussian.count == 10
 
 
 def test_one_run_per_geometry_through_a_cached_engine(engine, fake_gaussian):

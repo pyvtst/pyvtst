@@ -4,35 +4,20 @@ geometry, and results are read from its formatted checkpoint."""
 from __future__ import annotations
 
 import os
-from collections import OrderedDict
-from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 import numpy.typing as npt
 
 from pyvtst.core.level import LevelOfTheory
 from pyvtst.core.molecule import Molecule
+from pyvtst.ports.engine import Engine, EngineResult
 from pyvtst.ports.errors import EngineError
 from pyvtst.programs import gaussian
 
 FloatArray = npt.NDArray[np.float64]
 
-# Recent runs kept per engine, so energy, gradient and Hessian requests at one
-# geometry share a run.
-MEMO_SIZE = 8
 
-_MemoKey = tuple[tuple[str, ...], int, int, bytes]
-
-
-@dataclass(frozen=True)
-class _Run:
-    energy: float
-    gradient: FloatArray
-    hessian: FloatArray | None
-
-
-class GaussianEngine:
+class GaussianEngine(Engine):
     """Energies, gradients and Hessians from Gaussian 16.
 
     Args:
@@ -63,11 +48,10 @@ class GaussianEngine:
     :attr:`level`. Gaussian runs with the caller's environment, so
     ``GAUSS_SCRDIR`` and the rest of a ``g16.profile`` setup apply.
 
-    A ``Force`` job serves energy and gradient requests, and a ``Freq`` job
-    the Hessian together with the energy and gradient. The last
-    :data:`MEMO_SIZE` results are kept, so asking for all three at one
-    geometry runs Gaussian once when the Hessian is asked for first. The
-    engine is not thread-safe.
+    Each call runs one job: a ``Force`` job for the energy and gradient, and a
+    ``Freq`` job when the Hessian is asked for. Wrap the engine in
+    :class:`~pyvtst.engines.CachedEngine` (as :class:`pyvtst.Reaction` does)
+    so a ``Freq`` job also serves later energy and gradient requests.
     """
 
     def __init__(
@@ -107,41 +91,12 @@ class GaussianEngine:
             timeout=None if timeout is None else float(timeout),
             verbose=verbose,
         )
-        self._memo: OrderedDict[_MemoKey, _Run] = OrderedDict()
 
     @property
     def level(self) -> LevelOfTheory:
         return self._level
 
-    def energy(self, mol: Molecule) -> float:
-        return self._result(mol, hessian=False).energy
-
-    def gradient(self, mol: Molecule) -> FloatArray:
-        return self._result(mol, hessian=False).gradient.copy()
-
-    def hessian(self, mol: Molecule) -> FloatArray:
-        # _result with hessian=True always returns a run with a Hessian.
-        return cast(FloatArray, self._result(mol, hessian=True).hessian).copy()
-
-    def _result(self, mol: Molecule, *, hessian: bool) -> _Run:
-        key = (
-            tuple(mol.symbols),
-            mol.charge,
-            mol.mult,
-            np.ascontiguousarray(mol.coords, dtype=np.float64).tobytes(),
-        )
-        hit = self._memo.get(key)
-        if hit is not None and (hit.hessian is not None or not hessian):
-            self._memo.move_to_end(key)
-            return hit
-        run = self._run(mol, hessian=hessian)
-        self._memo[key] = run
-        self._memo.move_to_end(key)
-        while len(self._memo) > MEMO_SIZE:
-            self._memo.popitem(last=False)
-        return run
-
-    def _run(self, mol: Molecule, *, hessian: bool) -> _Run:
+    def compute(self, mol: Molecule, *, hessian: bool) -> EngineResult:
         level = self._level
         options = dict(level.options)
         job = gaussian.FREQ_JOB if hessian else gaussian.FORCE_JOB
@@ -169,4 +124,4 @@ class GaussianEngine:
             )
         except ValueError as exc:
             raise EngineError(f"{context}: {gaussian.FCHK_NAME}: {exc}") from None
-        return _Run(energy, gradient, full)
+        return EngineResult(energy, gradient, full)
