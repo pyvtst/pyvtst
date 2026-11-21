@@ -48,11 +48,19 @@ class AdapterEntry:
             present (absent ones at their default).
         path_keys: Options that are paths, resolved against the input file's
             directory.
+        requires_engine: For an optimizer that runs a program at the level of
+            that program's engine: the engine type it needs. Loading fails at
+            ``optimizer.type`` with any other engine.
+        shared_keys: Options the optimizer takes from the ``[engine]`` table,
+            so both run with the same programs and resources. They are not
+            keys of the optimizer table.
     """
 
     fields: tuple[Field, ...]
     build: Callable[[Mapping[str, Any]], Any]
     path_keys: frozenset[str] = field(default_factory=frozenset)
+    requires_engine: str | None = None
+    shared_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,15 +200,82 @@ def _gaussian_optimizer_entry() -> AdapterEntry:
         ),
         build=_build_gaussian_optimizer,
         path_keys=frozenset({"workdir"}),
+        requires_engine="gaussian",
+        shared_keys=GAUSSIAN_SHARED_KEYS,
+    )
+
+
+def _build_orca_engine(options: Mapping[str, Any]) -> Any:
+    from pyvtst.engines import OrcaEngine  # noqa: PLC0415
+
+    return OrcaEngine(**options)
+
+
+def _build_orca_optimizer(options: Mapping[str, Any]) -> Any:
+    from pyvtst.optimizers import OrcaOptimizer  # noqa: PLC0415
+
+    return OrcaOptimizer(**options)
+
+
+# ORCA optimizer options taken from the [engine] table, so that an ORCA engine
+# and optimizer run with the same program and resources.
+ORCA_SHARED_KEYS = ("nprocs", "maxcore", "executable")
+
+
+def _orca_engine_entry() -> AdapterEntry:
+    from pyvtst.programs.orca import HESSIANS, REFERENCES  # noqa: PLC0415
+
+    return AdapterEntry(
+        fields=(
+            Field("method", "str", required=True),
+            Field("basis", "str", default=None),
+            Field("keywords", "str", default=""),
+            Field("blocks", "str", default=""),
+            Field("reference", "str", default="auto", choices=REFERENCES),
+            Field("hessian", "str", default="analytic", choices=HESSIANS),
+            Field("nprocs", "int", default=1),
+            Field("maxcore", "int", default=2000),
+            Field("executable", "str", default=None),
+            Field("workdir", "str", default=None),
+            Field("timeout", "float", default=None),
+            Field("verbose", "bool", default=False),
+        ),
+        build=_build_orca_engine,
+        path_keys=frozenset({"executable", "workdir"}),
+    )
+
+
+def _orca_optimizer_entry() -> AdapterEntry:
+    """The optimizer's own keys; the schema adds :data:`ORCA_SHARED_KEYS` from
+    the ORCA engine."""
+    from pyvtst.programs.orca import CONVERGENCE  # noqa: PLC0415
+
+    return AdapterEntry(
+        fields=(
+            Field("convergence", "str", default="tight", choices=CONVERGENCE),
+            Field("max_cycles", "int", default=100),
+            Field("workdir", "str", default=None),
+            Field("timeout", "float", default=None),
+            Field("verbose", "bool", default=False),
+        ),
+        build=_build_orca_optimizer,
+        path_keys=frozenset({"workdir"}),
+        requires_engine="orca",
+        shared_keys=ORCA_SHARED_KEYS,
     )
 
 
 DEFAULT_REGISTRY = Registry(
-    engines={"gaussian": _gaussian_engine_entry(), "pyscf": _pyscf_entry()},
+    engines={
+        "gaussian": _gaussian_engine_entry(),
+        "orca": _orca_engine_entry(),
+        "pyscf": _pyscf_entry(),
+    },
     optimizers={
         "gaussian": _gaussian_optimizer_entry(),
         "geometric": _geometric_entry(),
+        "orca": _orca_optimizer_entry(),
     },
 )
-"""The built-in adapters: engines ``"gaussian"`` and ``"pyscf"``, optimizers
-``"gaussian"`` and ``"geometric"``."""
+"""The built-in adapters: engines ``"gaussian"``, ``"orca"`` and ``"pyscf"``,
+optimizers ``"gaussian"``, ``"geometric"`` and ``"orca"``."""

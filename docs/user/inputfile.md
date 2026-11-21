@@ -118,8 +118,10 @@ of the Python class.
 |---|---|---|
 | engine `"pyscf"` | `method`, `basis` | `reference`, `hessian`, `fd_step`, `conv_tol`, `grid_level`, `max_cycle`, `max_memory_mb`, `verbose` |
 | engine `"gaussian"` | `method`, `basis` | `keywords`, `reference`, `nprocs`, `memory`, `executable`, `formchk`, `workdir`, `timeout`, `verbose` |
+| engine `"orca"` | `method` | `basis`, `keywords`, `blocks`, `reference`, `hessian`, `nprocs`, `maxcore`, `executable`, `workdir`, `timeout`, `verbose` |
 | optimizer `"geometric"` | | `convergence`, `max_iterations`, `coordsys`, `workdir`, `verbose` |
 | optimizer `"gaussian"` | | `convergence`, `max_cycles`, `workdir`, `timeout`, `verbose` |
+| optimizer `"orca"` | | `convergence`, `max_cycles`, `workdir`, `timeout`, `verbose` |
 
 See [Engines](engines.md) and [Geometry optimizers](optimization.md) for what
 each option does.
@@ -144,6 +146,33 @@ convergence = "verytight"
 
 Unset `executable` and `formchk` are looked up as described in
 [Engines](engines.md#gaussian).
+
+The `"orca"` optimizer needs the `"orca"` engine, and takes `nprocs`,
+`maxcore` and `executable` from the `[engine]` table. Leave out `basis` for a
+composite method such as `r2SCAN-3c`. Write `blocks` as a multi-line string:
+
+```toml
+[engine]
+type = "orca"
+method = "B3LYP"
+basis = "def2-SVP"
+keywords = "D3BJ RIJCOSX def2/J"
+blocks = """
+%scf
+  MaxIter 300
+end
+"""
+nprocs = 8
+maxcore = 3000   # MB per process
+# executable = "/opt/orca_6_0_1/orca"   # default: $PYVTST_ORCA, else orca on PATH
+
+[optimizer]
+type = "orca"
+convergence = "verytight"
+```
+
+An unset `executable` is looked up as described in
+[Engines](engines.md#orca).
 
 ### `[mep]`
 

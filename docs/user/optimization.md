@@ -3,8 +3,8 @@
 An optimizer locates minima and first-order saddle points, calling an engine
 for the energies, gradients and Hessians it needs. `Reaction` uses it to
 optimize the reactants, products and transition state. PyVTST ships
-optimizers for geomeTRIC and Gaussian 16, and any other can be connected
-through the `Optimizer` protocol.
+optimizers for geomeTRIC, Gaussian 16 and ORCA 6, and any other can be
+connected through the `Optimizer` protocol.
 
 ## Optimizing the stationary points
 
@@ -93,6 +93,57 @@ component of a `"tight"` result can be slightly above geomeTRIC's
 `max_cycles` raises `ConvergenceError`, with the last geometry in
 `last_molecule`; any other Gaussian failure raises `EngineError`.
 
+## ORCA
+
+`OrcaOptimizer` runs ORCA's own optimizer, at the level of theory of an
+`OrcaEngine` (see [Quantum chemistry engines](engines.md)). Minima use `Opt`,
+`TightOpt` or `VeryTightOpt`. Transition states use `OptTS` with the same
+criteria and an exact Hessian at the guess (`Calc_Hess true`). The initial
+Hessian is numerical when the engine has `hessian="numerical"`.
+
+```python
+from pyvtst.engines import OrcaEngine
+from pyvtst.optimizers import OrcaOptimizer
+
+engine = OrcaEngine("B3LYP", "def2-SVP", keywords="D3BJ", nprocs=8, maxcore=3000)
+optimizer = OrcaOptimizer(convergence="verytight", nprocs=8, maxcore=3000)
+rxn = Reaction([h2, h], h3_guess, engine, optimizer=optimizer, store="h3.h5")
+```
+
+The optimizer works only with an ORCA engine. Any other engine raises
+`TypeError`. The optimizer takes the method, basis, keywords, blocks,
+reference and Hessian mode from the engine, but it has its own run settings.
+`nprocs`, `maxcore`, `executable`, `workdir`, `timeout` and `verbose` mean the
+same as for the engine, and they have the same defaults and executable
+lookup.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `convergence` | `"tight"` | `"normal"`, `"tight"` or `"verytight"`: ORCA's `Opt`, `TightOpt` or `VeryTightOpt` criteria |
+| `max_cycles` | `100` | Maximum number of optimization cycles (`%geom MaxIter`) |
+
+The criteria of each name:
+
+| Name | TolE (Eh) | TolMAXG (Eh/bohr) | TolRMSG (Eh/bohr) | TolMAXD (bohr) | TolRMSD (bohr) |
+| --- | --- | --- | --- | --- | --- |
+| `"normal"` | 5e-6 | 3e-4 | 1e-4 | 4e-3 | 2e-3 |
+| `"tight"` | 1e-6 | 1e-4 | 3e-5 | 1e-3 | 6e-4 |
+| `"verytight"` | 2e-7 | 3e-5 | 8e-6 | 2e-4 | 1e-4 |
+
+Only `convergence` is part of the cache key. A result is accepted only when
+ORCA reports that the optimization converged. ORCA applies its criteria in
+redundant internal coordinates, so the largest Cartesian gradient component
+of a `"tight"` result can be slightly above geomeTRIC's `GAU_TIGHT`
+threshold. Use `"verytight"` when that matters.
+
+ORCA does not stop at a wrong number of negative Hessian eigenvalues during
+`OptTS`. `Reaction` checks the imaginary frequencies afterwards.
+
+When ORCA reaches `max_cycles`, it still reports normal termination and exits
+with status 0. The optimizer reads the log and raises `ConvergenceError`, with
+the geometry of the last cycle in `last_molecule`. Any other ORCA failure
+raises `EngineError`.
+
 ## Checking the stationary points
 
 After optimization each species is checked by its imaginary frequencies.
@@ -131,8 +182,8 @@ except ConvergenceError as exc:
 
 `last_molecule` can be a rejected trial step rather than the best point
 found, so check it before using it as a new guess. With geomeTRIC, raising
-`max_iterations` or switching `coordsys` often helps; with Gaussian, raise
-`max_cycles`. A failed SCF in the engine raises
+`max_iterations` or switching `coordsys` often helps; with Gaussian or ORCA,
+raise `max_cycles`. A failed SCF in the engine raises
 `EngineError` instead; see [Quantum chemistry engines](engines.md).
 
 ## Other optimizers

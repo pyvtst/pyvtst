@@ -1,9 +1,10 @@
-"""Shared fixtures: the analytic LEPS engine, fake Gaussian programs and
-H / H2 / H3 structures."""
+"""Shared fixtures: the analytic LEPS engine, fake Gaussian and ORCA programs
+and H / H2 / H3 structures."""
 
 import pytest
 
 from pyvtst import Molecule
+from tests.fakes import orca as fake_orca_module
 from tests.fakes.gaussian import install
 from tests.fakes.leps import LEPSEngine
 
@@ -21,6 +22,16 @@ def fake_gaussian(tmp_path, monkeypatch):
     monkeypatch.setenv("PYVTST_G16", str(fake.g16))
     monkeypatch.setenv("PYVTST_FORMCHK", str(fake.formchk))
     monkeypatch.delenv("FAKE_G16_MODE", raising=False)
+    return fake
+
+
+@pytest.fixture
+def fake_orca(tmp_path, monkeypatch):
+    """A fake ``orca`` on the LEPS surface, selected through ``PYVTST_ORCA``;
+    set ``FAKE_ORCA_MODE`` for failures."""
+    fake = fake_orca_module.install(tmp_path / "fake-orca")
+    monkeypatch.setenv("PYVTST_ORCA", str(fake.orca))
+    monkeypatch.delenv("FAKE_ORCA_MODE", raising=False)
     return fake
 
 
