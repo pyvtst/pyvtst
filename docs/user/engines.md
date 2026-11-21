@@ -2,8 +2,8 @@
 
 An engine computes energies, gradients and Hessians for a `Molecule`, at one
 level of theory. `Reaction` calls it for every optimization step, stationary
-point and path point. PyVTST ships engines for PySCF and Gaussian 16, and any
-other program can be connected through the `Engine` protocol.
+point and path point. PyVTST ships engines for PySCF, Gaussian 16 and ORCA 6, and
+any other program can be connected through the `Engine` protocol.
 
 ## PySCF
 
@@ -131,6 +131,132 @@ starts from Gaussian's default SCF guess.
 
 `engine.level` holds the method, basis, `keywords` and `reference`. The other
 options are not part of it, so they do not change cache keys.
+
+## ORCA
+
+`OrcaEngine` runs ORCA 6 for each geometry and reads the energy and gradient
+from `job.engrad` and the Hessian from `job.hess`. ORCA is licensed
+separately (free for academic use after registration). PyVTST does not ship
+or download it. Importing `pyvtst.engines` works without ORCA. Only the
+construction of an `OrcaEngine` needs it.
+
+```python
+from pyvtst.engines import OrcaEngine
+
+engine = OrcaEngine(
+    "B3LYP",
+    "def2-SVP",
+    keywords="D3BJ RIJCOSX def2/J",
+    nprocs=8,
+    maxcore=3000,
+)
+result = engine.compute(water, hessian=True)  # one EnGrad Freq job
+result.energy, result.gradient, result.hessian
+```
+
+Method, basis and `keywords` take any ORCA names, as on the `!` line of an
+ORCA input. Case and repeated spaces in `keywords` do not matter. For a
+composite method that sets its own basis, such as `r2SCAN-3c`, `B97-3c` or
+`HF-3c`, leave out the basis: `OrcaEngine("r2SCAN-3c")`.
+
+Use `blocks` for settings that have no simple keyword. Write them as in an
+ORCA input:
+
+```python
+engine = OrcaEngine(
+    "B3LYP",
+    "def2-SVP",
+    blocks="""
+%scf
+  MaxIter 300
+end
+""",
+)
+```
+
+The engine writes some parts of the input itself, so it rejects these:
+
+- Keywords for job types (`SP`, `EnGrad`, `Opt` and every keyword that ends
+  in `Opt`, `OptTS`, `Freq`, `NumFreq`, `IRC`, `MD`, `NEB`, `GOAT` and
+  others), coordinate units (`Bohrs`, `Angs`), `PAL<n>`, references (`RHF`,
+  `UHF`, `RKS`, `UKS`, `ROHF`, `ROKS`), `MORead` and `UseSym`.
+- The blocks `%pal`, `%maxcore`, `%geom`, `%freq`, `%coords`, `%irc`, `%neb`
+  and `%md`, and the word `RunTyp`. Use `nprocs` and `maxcore` instead of
+  `%pal` and `%maxcore`.
+- The character `#` in `keywords` or `blocks`. ORCA reads the rest of the
+  line as a comment, so it would hide input that the engine writes.
+
+Keyword options:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `basis` | `None` | The basis set; `None` for a method that sets its own basis |
+| `keywords` | `""` | Extra simple-input keywords, e.g. `"D3BJ RIJCOSX def2/J"` |
+| `blocks` | `""` | Extra `%` blocks, e.g. `"%scf MaxIter 300 end"` |
+| `reference` | `"auto"` | `"auto"` leaves it to ORCA (restricted for singlets, unrestricted otherwise); `"restricted"` or `"unrestricted"` force it (`RHF`/`UHF`, which also select RKS/UKS for DFT) |
+| `hessian` | `"analytic"` | `"analytic"` (`Freq`) or `"numerical"` (`NumFreq`, central differences of gradients) |
+| `nprocs` | `1` | Processes per job (`%pal nprocs`) |
+| `maxcore` | `2000` | Memory per process in MB (`%maxcore`), not the total |
+| `executable` | `None` | The ORCA executable; see the lookup order below |
+| `workdir` | `None` | Keep each job's input, log and result files in a new subdirectory here, named in run order (`0001-freq-HCN`, `0002-engrad-HCN`, ...); by default a temporary directory, removed afterwards |
+| `timeout` | `None` | Seconds after which a job is stopped and `EngineError` raised |
+| `verbose` | `False` | Print where each job runs and where its log is |
+
+The executable is found in this order:
+
+1. The `executable` argument.
+2. The environment variable `PYVTST_ORCA`.
+3. `orca` on `PATH`.
+
+An argument or a set variable that does not name an executable file is an
+error. PyVTST does not fall back to `PATH`, so it never runs a different ORCA
+install than the one you chose. An empty variable counts as unset.
+
+PyVTST follows symbolic links to the real executable. ORCA finds its helper
+programs (`orca_scf`, `orca_leanscf_mpi` and others) in the directory of the
+path it is called with, so a link such as `~/bin/orca6` works for parallel
+runs too.
+
+```{warning}
+Set `PYVTST_ORCA` on Linux desktops. On many of them, `orca` on `PATH` is the
+GNOME screen reader, not the quantum chemistry program. If the program that
+PyVTST runs does not write ORCA output, the engine raises `EngineError` and
+names `PYVTST_ORCA`.
+```
+
+ORCA runs with your environment unchanged. For `nprocs` above 1, ORCA needs
+OpenMPI on `PATH` and `LD_LIBRARY_PATH`, as when you run ORCA by hand.
+
+Each call runs one ORCA job:
+
+- `energy`, `gradient` and `compute(mol, hessian=False)` run `EnGrad`.
+- `hessian` and `compute(mol, hessian=True)` run `EnGrad Freq`, or
+  `EnGrad NumFreq` with `hessian="numerical"`.
+
+Every job is a gradient job. Thus every job uses the same SCF convergence,
+and the energy and gradient at a geometry do not depend on whether you asked
+for a Hessian. A `Freq` job alone would use a looser SCF in ORCA.
+`Reaction` and `CachedEngine` store every result that a job gives, so a path
+point is one ORCA job.
+
+The engine keeps the molecule in its own orientation and checks that ORCA
+did too. ORCA writes the Hessian geometry moved to the centre of mass; the
+engine accepts that shift, but no rotation.
+
+ORCA has analytic Hessians for SCF methods (HF and DFT) only. For MP2,
+double hybrids and other methods, use `hessian="numerical"`. Otherwise ORCA
+stops, and the engine raises `EngineError` that says so.
+
+The exit status of ORCA does not show every failure: ORCA exits with status
+0 after a non-converged SCF. The engine thus reads the log. A job that does
+not report normal termination, reports an error termination, writes no
+result file or runs longer than `timeout` raises `pyvtst.ports.EngineError`,
+with the end of the ORCA log in the message. Each job starts from ORCA's
+default SCF guess, so results never depend on earlier calls.
+
+`engine.level` holds the method, basis, `keywords`, `blocks`, `reference`
+and `hessian`. The other options are not part of it, so they do not change
+cache keys. PyVTST is tested with ORCA 6.0.1.
 
 ## Other programs
 

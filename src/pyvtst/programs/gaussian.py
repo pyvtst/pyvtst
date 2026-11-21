@@ -23,16 +23,12 @@ of arguments and without a shell.
 
 from __future__ import annotations
 
-import contextlib
 import math
 import os
 import re
-import shutil
-import signal
 import subprocess  # nosec B404
 import sys
-import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +37,10 @@ import numpy.typing as npt
 
 from pyvtst.core.elements import element, formula
 from pyvtst.core.molecule import Molecule
+from pyvtst.programs import process
+from pyvtst.programs.process import find_executable as find_executable
+from pyvtst.programs.process import job_name as job_name
+from pyvtst.programs.process import label as label
 
 FloatArray = npt.NDArray[np.float64]
 
@@ -81,39 +81,6 @@ FCHK_NAME = "job.fchk"
 # --- Executable lookup -------------------------------------------------------
 
 
-def find_executable(
-    program: str, variable: str, argument: str, value: str | os.PathLike[str] | None
-) -> str:
-    """Locate ``program``: the ``argument`` value, else ``$variable``, else PATH.
-
-    An argument or a non-empty variable is taken as is; if it does not name an
-    executable file, ``FileNotFoundError`` is raised rather than falling back
-    to PATH, so a different install is never run silently.
-
-    Returns:
-        The absolute path of the executable.
-    """
-    if value is not None:
-        return _executable(Path(value), argument)
-    from_env = os.environ.get(variable, "")
-    if from_env:
-        return _executable(Path(from_env), variable)
-    found = shutil.which(program)
-    if found is None:
-        raise FileNotFoundError(
-            f"cannot find {program}: pass {argument}=..., set {variable}, "
-            f"or put {program} on PATH"
-        )
-    return str(Path(found).absolute())
-
-
-def _executable(path: Path, source: str) -> str:
-    path = path.expanduser()
-    if not (path.is_file() and os.access(path, os.X_OK)):
-        raise FileNotFoundError(f"{source}: {str(path)!r} is not an executable file")
-    return str(path.absolute())
-
-
 def find_programs(
     executable: str | os.PathLike[str] | None,
     formchk: str | os.PathLike[str] | None,
@@ -127,30 +94,9 @@ def find_programs(
 
 def check_run_settings(nprocs: object, memory: object, timeout: object) -> None:
     """Validate the run settings shared by the Gaussian engine and optimizer."""
-    if isinstance(nprocs, bool) or not isinstance(nprocs, int) or nprocs < 1:
-        raise ValueError(f"nprocs: must be an integer of at least 1, got {nprocs!r}")
+    process.check_run_settings(nprocs, timeout)
     if not isinstance(memory, str) or not memory.strip() or " " in memory.strip():
         raise ValueError(f"memory: expected a size such as '4GB', got {memory!r}")
-    if timeout is not None and (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, int | float)
-        or not timeout > 0
-    ):
-        raise ValueError(f"timeout: must be a positive number, got {timeout!r}")
-
-
-def label(mol: Molecule) -> str:
-    """The molecule's name, or its formula when it has none."""
-    return mol.name or formula(mol.symbols)
-
-
-def job_name(job: str, mol: Molecule) -> str:
-    """``<job>-<label>``, the readable part of a kept job directory's name.
-
-    Characters other than letters, digits, ``.``, ``_``, ``+`` and ``-`` in
-    the label become ``_``, so the name is a safe directory name.
-    """
-    return f"{job}-" + re.sub(r"[^A-Za-z0-9._+-]", "_", label(mol))
 
 
 # --- Route and deck ----------------------------------------------------------
@@ -480,7 +426,9 @@ def run_job(
     timeout when ``formchk_on_failure`` is set. A run that takes longer than
     ``settings.timeout`` is stopped and reported as a failure.
     """
-    with _job_directory(settings.workdir, name) as jobdir:
+    with process.job_directory(
+        settings.workdir, name, prefix="pyvtst-gaussian-"
+    ) as jobdir:
         (jobdir / INPUT_NAME).write_text(deck, encoding="utf-8")
         if settings.verbose:
             print(f"pyvtst: running Gaussian ({name}) in {jobdir}", file=sys.stderr)
@@ -542,77 +490,7 @@ def _formchk(settings: RunSettings, jobdir: Path) -> tuple[Fchk | None, str | No
 def _execute(
     args: list[str], cwd: Path, settings: RunSettings
 ) -> tuple[int | None, str]:
-    """Run ``args`` in ``cwd``; return the exit status (``None`` if it could
-    not start) and the captured output."""
-    stream = None if settings.verbose else subprocess.PIPE
-    try:
-        # A list of arguments and no shell; the executables are the user's own
-        # Gaussian and formchk, located by find_programs.
-        proc = subprocess.Popen(  # nosec B603
-            args,
-            cwd=cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=stream,
-            stderr=None if settings.verbose else subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
-    except OSError as exc:
-        return None, str(exc)
-    try:
-        output, _ = proc.communicate(timeout=settings.timeout)
-    except subprocess.TimeoutExpired:
-        _kill(proc)
-        proc.communicate()
-        raise
-    return proc.returncode, output or ""
-
-
-def _kill(proc: subprocess.Popen[str]) -> None:
-    """Stop ``proc`` and, where possible, every process it started."""
-    with contextlib.suppress(ProcessLookupError):
-        if sys.platform == "win32":
-            proc.kill()
-        else:
-            # Gaussian runs each link as a child process; the session started
-            # for the run holds them all.
-            os.killpg(proc.pid, signal.SIGKILL)
-
-
-@contextlib.contextmanager
-def _job_directory(workdir: str | os.PathLike[str] | None, name: str) -> Iterator[Path]:
-    if workdir is None:
-        with tempfile.TemporaryDirectory(prefix="pyvtst-gaussian-") as tmp:
-            yield Path(tmp)
-        return
-    root = Path(workdir).absolute()
-    root.mkdir(parents=True, exist_ok=True)
-    yield _numbered_directory(root, name)
-
-
-_NUMBERED = re.compile(r"(\d+)-")
-
-
-def _last_number(root: Path) -> int:
-    """The largest ``<number>-`` prefix among the entries of ``root``, or 0."""
-    numbers = [
-        int(m.group(1)) for p in root.iterdir() if (m := _NUMBERED.match(p.name))
-    ]
-    return max(numbers, default=0)
-
-
-def _numbered_directory(root: Path, name: str) -> Path:
-    """Create ``root/<number>-<name>`` with the next free number.
-
-    ``mkdir`` fails if the directory exists, so a name taken in the meantime
-    (by another run sharing ``root``) moves on to the next number.
-    """
-    number = _last_number(root) + 1
-    while True:
-        path = root / f"{number:04d}-{name}"
-        try:
-            path.mkdir()
-        except FileExistsError:
-            number += 1
-            continue
-        return path
+    """Run ``args`` in ``cwd``; see :func:`pyvtst.programs.process.execute`."""
+    return process.execute(
+        args, cwd, timeout=settings.timeout, verbose=settings.verbose
+    )

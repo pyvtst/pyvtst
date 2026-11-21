@@ -29,3 +29,10 @@ run an existing Gaussian install, which you license and install separately.
 PyVTST finds it through the `executable` argument, the `PYVTST_G16`
 environment variable or `g16` on `PATH` (and likewise `formchk`); see
 [Engines](engines.md#gaussian).
+
+ORCA 6 is not a Python package either: `OrcaEngine` and `OrcaOptimizer` run
+an existing ORCA install. ORCA is free for academic use after registration
+with its developers, and you install it separately. For runs with more than
+one process, ORCA also needs the OpenMPI version that its release names.
+PyVTST finds ORCA through the `executable` argument, the `PYVTST_ORCA`
+environment variable or `orca` on `PATH`; see [Engines](engines.md#orca).

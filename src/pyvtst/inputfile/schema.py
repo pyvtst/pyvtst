@@ -25,7 +25,6 @@ from pyvtst.core.stationary import check_freq_scale
 from pyvtst.core.units import ANGSTROM_TO_BOHR
 from pyvtst.inputfile.registry import (
     DEFAULT_REGISTRY,
-    GAUSSIAN_SHARED_KEYS,
     AdapterEntry,
     Field,
     Registry,
@@ -431,8 +430,14 @@ def _input(
     optimizer = None
     if top.get("optimizer") is not None:
         optimizer = _adapter(ctx, top["optimizer"], "optimizer", registry.optimizers)
-    if optimizer is not None and optimizer.type == "gaussian" and engine is not None:
-        optimizer = _gaussian_optimizer(ctx, optimizer, engine)
+    paired = registry.optimizers.get(optimizer.type) if optimizer else None
+    if (
+        optimizer is not None
+        and paired is not None
+        and paired.requires_engine is not None
+        and engine is not None
+    ):
+        optimizer = _paired_optimizer(ctx, optimizer, engine, paired)
     mep = None
     if top.get("mep") is not None:
         mep = _mep(ctx, top["mep"], ts)
@@ -724,19 +729,19 @@ def _adapter(
     )
 
 
-def _gaussian_optimizer(
-    ctx: _Context, optimizer: AdapterSpec, engine: AdapterSpec
+def _paired_optimizer(
+    ctx: _Context, optimizer: AdapterSpec, engine: AdapterSpec, entry: AdapterEntry
 ) -> AdapterSpec | None:
-    """Pair the Gaussian optimizer with the Gaussian engine.
+    """Pair a program's optimizer with the same program's engine.
 
     The optimizer runs at the engine's level with the engine's programs and
-    resources, so it takes :data:`GAUSSIAN_SHARED_KEYS` from the engine.
+    resources, so it takes the entry's ``shared_keys`` from the engine.
     """
-    if engine.type != "gaussian":
+    if engine.type != entry.requires_engine:
         ctx.error(
             "optimizer.type",
-            f"the 'gaussian' optimizer needs the 'gaussian' engine, "
-            f"got engine type {engine.type!r}",
+            f"the {optimizer.type!r} optimizer needs the "
+            f"{entry.requires_engine!r} engine, got engine type {engine.type!r}",
         )
         return None
     shared = engine.kwargs
@@ -744,7 +749,7 @@ def _gaussian_optimizer(
         type=optimizer.type,
         options=(
             *optimizer.options,
-            *((key, shared[key]) for key in GAUSSIAN_SHARED_KEYS),
+            *((key, shared[key]) for key in entry.shared_keys),
         ),
     )
 

@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from pyvtst import Molecule
-from pyvtst.programs import gaussian
 from pyvtst.programs.gaussian import (
     FORCE_JOB,
     FREQ_JOB,
@@ -401,13 +400,6 @@ def test_job_directories_are_numbered_in_run_order(settings, tmp_path):
         "0009-freq-H2",
         "notes.txt",
     ]
-
-
-def test_taken_directory_moves_to_the_next_number(tmp_path, monkeypatch):
-    # Another run took 0001-freq-H2 after this one looked for the last number.
-    (tmp_path / "0001-freq-H2").mkdir()
-    monkeypatch.setattr(gaussian, "_last_number", lambda root: 0)
-    assert gaussian._numbered_directory(tmp_path, "freq-H2").name == "0002-freq-H2"
 
 
 @pytest.mark.parametrize(
