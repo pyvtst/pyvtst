@@ -149,3 +149,23 @@ def test_kept_job_directories_are_numbered(tmp_path):
         pass
     assert (first.name, second.name) == ("0008-a", "0009-b")
     assert os.listdir(tmp_path)
+
+
+class _StandInProcess:
+    """Records how it was stopped."""
+
+    pid = -1
+
+    def __init__(self) -> None:
+        self.killed = False
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def test_windows_stops_the_process_itself(monkeypatch):
+    # Windows has no process groups, so only the process itself is stopped.
+    monkeypatch.setattr(sys, "platform", "win32")
+    proc = _StandInProcess()
+    process._kill(proc)  # type: ignore[arg-type]
+    assert proc.killed
